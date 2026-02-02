@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id             String   @id @default(cuid())
+  externalId     String?  @unique // ID in Yandex/CRM
+  telegramUserId String?  @unique // set when user sends contact
+  phone          String
+  yandexEmail    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agentTariffs   AgentTariff[]
+  drafts         RegistrationDraft[]
+}
+
+model AgentTariff {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  commissionPercent Int    // 0-100
+  name      String?  // optional label
+  createdAt DateTime @default(now())
+
+  @@index([agentId])
+}
+
+model RegistrationDraft {
+  id                 String   @id @default(cuid())
+  agentId            String
+  agent              Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  type               String   // "driver" | "courier"
+  status             String   @default("in_progress") // in_progress | submitted | done
+  selectedTariffId   String?  // AgentTariff.id
+
+  // Executor
+  executorFio        String?
+  executorPhone      String?
+  executorExperience String? // date or years
+  executorLicense    String? // series+number no spaces
+  executorLicenseCountry String?
+  executorLicenseIssueDate String?
+  executorLicenseValidUntil String?
+
+  // Car
+  carBrand           String?
+  carModel           String?
+  carColor           String?
+  carYear            Int?
+  carPlate           String?
+  carSts             String?
+
+  // Tariffs (JSON array of ids/names)
+  executorTariffs    String?  // JSON string[]
+
+  // Branding
+  brandingWrap       Boolean? @default(false)
+  brandingLightbox   Boolean? @default(false)
+
+  submittedExecutorId String? // external ID after submit
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([status])
+}

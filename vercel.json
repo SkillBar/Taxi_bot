@@ -1,0 +1,9 @@
+{
+  "buildCommand": "cd webapp && npm ci && npm run build",
+  "outputDirectory": "webapp/dist",
+  "framework": null,
+  "installCommand": "cd webapp && npm ci",
+  "rewrites": [
+    { "source": "/webapp/assets/:path*", "destination": "/assets/:path*" }
+  ]
+}

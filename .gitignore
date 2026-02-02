@@ -1,0 +1,32 @@
+# Env и секреты
+.env
+.env.local
+.env.*.local
+api/.env
+
+# Зависимости
+node_modules/
+
+# Сборка
+dist/
+webapp/dist/
+api/dist/
+bot/dist/
+
+# Логи и кэш
+*.log
+.npm
+.cache
+
+# IDE и ОС
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Vercel
+.vercel
+
+# Prisma
+api/node_modules/.prisma/

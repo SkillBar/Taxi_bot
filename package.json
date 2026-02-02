@@ -1,0 +1,20 @@
+{
+  "name": "telegram-executor-registration",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:api & npm run dev:bot & wait",
+    "dev:api": "cd api && npm run dev",
+    "dev:bot": "cd bot && npm run dev",
+    "dev:webapp": "cd webapp && npm run dev",
+    "setup": "cd api && npm install && npx prisma generate && npx prisma db push && npm run db:seed",
+    "build:api": "cd api && npm run build",
+    "build:bot": "cd bot && npm run build",
+    "build:webapp": "cd webapp && npm run build",
+    "db:generate": "cd api && npx prisma generate",
+    "db:migrate": "cd api && npx prisma migrate dev",
+    "db:push": "cd api && npx prisma db push"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
