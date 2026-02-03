@@ -21,11 +21,25 @@ export async function agentRoutes(app: FastifyInstance) {
     const phone = normalizePhone(req.query.phone);
     if (!phone) return reply.status(400).send({ error: "Phone required" });
 
+    const external = await checkExternalAgent(phone);
+    if (external) {
+      if (!external.found || !external.isActive) {
+        return reply.send({
+          found: false,
+          message: external.message ?? "Ваш номер не найден в системе. Обратитесь к администратору.",
+        });
+      }
+
+      const agent = await upsertAgentFromExternal(phone, external.externalId ?? null, true);
+      return reply.send({ found: true, agentId: agent.id });
+    }
+
     const agent = await prisma.agent.findFirst({
       where: { phone, isActive: true },
     });
-    if (!agent)
+    if (!agent) {
       return reply.send({ found: false, message: "Ваш номер не найден в системе. Обратитесь к администратору." });
+    }
     return reply.send({ found: true, agentId: agent.id });
   });
 
@@ -37,10 +51,17 @@ export async function agentRoutes(app: FastifyInstance) {
     const telegramUserId = (req.body as any)?.telegramUserId;
     if (!phone || !telegramUserId) return reply.status(400).send({ error: "phone and telegramUserId required" });
 
-    const agent = await prisma.agent.findFirst({
+    let agent = await prisma.agent.findFirst({
       where: { phone, isActive: true },
     });
-    if (!agent) return reply.status(404).send({ error: "Agent not found" });
+
+    if (!agent) {
+      const external = await checkExternalAgent(phone);
+      if (!external?.found || !external.isActive) {
+        return reply.status(404).send({ error: "Agent not found" });
+      }
+      agent = await upsertAgentFromExternal(phone, external.externalId ?? null, true);
+    }
 
     await prisma.agent.update({
       where: { id: agent.id },
@@ -116,6 +137,70 @@ export async function agentRoutes(app: FastifyInstance) {
       data: { agentId: agent.id, commissionPercent },
     });
     return reply.send({ id: tariff.id, commissionPercent: tariff.commissionPercent });
+  });
+}
+
+type ExternalAgentCheck = {
+  found: boolean;
+  externalId?: string | null;
+  isActive?: boolean;
+  message?: string;
+};
+
+async function checkExternalAgent(phone: string): Promise<ExternalAgentCheck | null> {
+  if (!config.agentCheckUrl) return null;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (config.agentCheckApiKey) {
+    headers["X-API-Key"] = config.agentCheckApiKey;
+    headers["Authorization"] = `Bearer ${config.agentCheckApiKey}`;
+  }
+
+  const res = await fetch(config.agentCheckUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ phone }),
+  });
+
+  if (!res.ok) {
+    return { found: false, message: "Ошибка проверки номера. Попробуйте позже." };
+  }
+
+  const data = (await res.json()) as any;
+  const found = Boolean(data?.found ?? data?.isFound ?? data?.ok);
+  const externalId = data?.externalId ?? data?.agentId ?? data?.id ?? null;
+  const isActive = data?.isActive ?? data?.active ?? found;
+  const message = data?.message;
+  return { found, externalId, isActive, message };
+}
+
+async function upsertAgentFromExternal(phone: string, externalId: string | null, isActive: boolean) {
+  if (externalId) {
+    const existingByExternal = await prisma.agent.findUnique({ where: { externalId } });
+    if (existingByExternal) {
+      return prisma.agent.update({
+        where: { id: existingByExternal.id },
+        data: { phone, isActive },
+      });
+    }
+  }
+
+  const existingByPhone = await prisma.agent.findFirst({ where: { phone } });
+  if (existingByPhone) {
+    return prisma.agent.update({
+      where: { id: existingByPhone.id },
+      data: { externalId: externalId ?? existingByPhone.externalId, isActive },
+    });
+  }
+
+  return prisma.agent.create({
+    data: {
+      phone,
+      externalId: externalId ?? undefined,
+      isActive,
+    },
   });
 }
 
