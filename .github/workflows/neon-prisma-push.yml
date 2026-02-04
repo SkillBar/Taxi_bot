@@ -1,0 +1,55 @@
+# При пуше в main/vercel получает connection URI из Neon API и применяет схему Prisma к БД.
+# В репозитории должны быть секреты: NEON_API_KEY, NEON_PROJECT_ID (добавляются при связке Neon ↔ GitHub).
+name: Neon — Prisma db push
+
+on:
+  push:
+    branches: [main, vercel]
+  workflow_dispatch: # можно запустить вручную из вкладки Actions
+
+jobs:
+  prisma-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: api/package-lock.json
+
+      - name: Get Neon connection URIs
+        id: neon
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+        run: |
+          BASE="https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/connection_uri?database_name=neondb&role_name=neondb_owner"
+          POOLED_JSON=$(curl -s -H "Authorization: Bearer $NEON_API_KEY" "${BASE}&pooled=true")
+          DIRECT_JSON=$(curl -s -H "Authorization: Bearer $NEON_API_KEY" "$BASE")
+          DATABASE_URL=$(echo "$POOLED_JSON" | jq -r '.connection_uri // empty')
+          DIRECT_URL=$(echo "$DIRECT_JSON" | jq -r '.connection_uri // empty')
+          if [ -z "$DATABASE_URL" ] || [ -z "$DIRECT_URL" ]; then
+            echo "Failed to get connection URIs from Neon API"
+            echo "Pooled: $POOLED_JSON" && echo "Direct: $DIRECT_JSON"
+            exit 1
+          fi
+          echo "DATABASE_URL<<EOF" >> $GITHUB_ENV
+          echo "$DATABASE_URL" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "DIRECT_URL<<EOF" >> $GITHUB_ENV
+          echo "$DIRECT_URL" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "Connection URIs set."
+
+      - name: Install API deps and Prisma
+        working-directory: api
+        run: npm ci
+
+      - name: Prisma generate and db push
+        working-directory: api
+        run: |
+          npx prisma generate
+          npx prisma db push

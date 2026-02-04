@@ -1,0 +1,4 @@
+{
+  "buildCommand": "npm ci && npx prisma generate && npm run build",
+  "installCommand": "npm ci"
+}

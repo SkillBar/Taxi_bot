@@ -4,6 +4,8 @@ Mini App обращается к API (агенты, черновики, тари
 
 **Альтернатива:** развернуть API на **Vercel** как serverless-функцию (один репо — два проекта: WebApp + API). См. **[VERCEL_API_DEPLOY.md](VERCEL_API_DEPLOY.md)**.
 
+**Управление схемой из GitHub:** если Neon связан с репозиторием (добавлены секреты `NEON_API_KEY`, `NEON_PROJECT_ID`), при каждом пуше в ветки `main` или `vercel` запускается workflow **Neon — Prisma db push** (`.github/workflows/neon-prisma-push.yml`): он получает connection URI через Neon API и выполняет `prisma db push`. Запуск вручную: **Actions** → **Neon — Prisma db push** → **Run workflow**.
+
 ---
 
 ## Часть 1. База данных в Neon

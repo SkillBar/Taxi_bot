@@ -2,6 +2,8 @@
   "name": "telegram-executor-registration",
   "private": true,
   "scripts": {
+    "push": "sh scripts/push.sh",
+    "deploy:push": "sh scripts/push.sh",
     "dev": "npm run dev:api & npm run dev:bot & wait",
     "dev:api": "cd api && npm run dev",
     "dev:bot": "cd bot && npm run dev",
