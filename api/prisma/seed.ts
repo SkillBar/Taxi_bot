@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  const phone = process.env.SEED_AGENT_PHONE ?? "+79991234567";
+  const phone = process.env.SEED_AGENT_PHONE || "+79991234567";
   const existing = await prisma.agent.findFirst({ where: { phone } });
   if (existing) {
     console.log("Agent already exists:", existing.id);

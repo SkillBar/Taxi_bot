@@ -17,14 +17,17 @@ export type YandexDriverProfile = {
 };
 
 function headers(): Record<string, string> {
-  const id = config.yandexClientId;
-  const key = config.yandexApiKey;
-  if (!id || !key) throw new Error("YANDEX_CLIENT_ID and YANDEX_API_KEY required");
-  return {
+  const clientId = config.yandexClientId;
+  const apiKey = config.yandexApiKey;
+  const parkId = config.yandexParkId;
+  if (!clientId || !apiKey) throw new Error("YANDEX_CLIENT_ID and YANDEX_API_KEY required");
+  const h: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-Client-ID": id,
-    "X-API-Key": key,
+    "X-Client-ID": clientId,
+    "X-API-Key": apiKey,
   };
+  if (parkId) h["X-Park-ID"] = parkId;
+  return h;
 }
 
 export function isConfigured(): boolean {
@@ -82,13 +85,13 @@ export async function findDriverByPhone(phone: string): Promise<YandexDriverProf
     }>;
   };
 
-  const list = data.driver_profiles ?? [];
+  const list = data.driver_profiles || [];
   if (list.length === 0) return null;
 
   const d = list[0];
-  const id = d.driver_profile?.id ?? "";
-  const name = d.person?.full_name ?? null;
-  const phoneVal = d.person?.contact_info?.phone ?? normalized;
+  const id = d.driver_profile?.id || "";
+  const name = d.person?.full_name || null;
+  const phoneVal = d.person?.contact_info?.phone || normalized;
   const balanceRaw = d.accounts?.[0]?.balance;
   const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
   const workStatus = d.driver_profile?.work_status;
@@ -139,11 +142,11 @@ export async function getDriversStatus(
     }>;
   };
 
-  for (const d of data.driver_profiles ?? []) {
+  for (const d of data.driver_profiles || []) {
     const id = d.driver_profile?.id;
     if (!id) continue;
-    const name = d.person?.full_name ?? null;
-    const phone = d.person?.contact_info?.phone ?? "";
+    const name = d.person?.full_name || null;
+    const phone = d.person?.contact_info?.phone || "";
     const balanceRaw = d.accounts?.[0]?.balance;
     const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
     const workStatus = d.driver_profile?.work_status;

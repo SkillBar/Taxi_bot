@@ -4,7 +4,7 @@ import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) ?? "";
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData || !validateInitData(initData, config.botToken)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
@@ -36,7 +36,7 @@ export async function draftRoutes(app: FastifyInstance) {
     preHandler: authFromInitData,
   }, async (req, reply) => {
     const telegramUserId = String((req as any).telegramUserId);
-    const { type } = req.body ?? {};
+    const { type } = req.body || {};
     if (type !== "driver" && type !== "courier")
       return reply.status(400).send({ error: "type must be driver or courier" });
 
@@ -147,7 +147,7 @@ export async function draftRoutes(app: FastifyInstance) {
             ...(config.registrationSubmitApiKey && { Authorization: `Bearer ${config.registrationSubmitApiKey}` }),
           },
           body: JSON.stringify({
-            agentId: agent.externalId ?? agent.id,
+            agentId: agent.externalId || agent.id,
             type: draft.type,
             executor: {
               fio: draft.executorFio,
@@ -168,13 +168,13 @@ export async function draftRoutes(app: FastifyInstance) {
             },
             agentTariffId: draft.selectedTariffId,
             executorTariffs: draft.executorTariffs ? JSON.parse(draft.executorTariffs) : [],
-            brandingWrap: draft.brandingWrap ?? false,
-            brandingLightbox: draft.brandingLightbox ?? false,
+            brandingWrap: draft.brandingWrap || false,
+            brandingLightbox: draft.brandingLightbox || false,
           }),
         });
         if (res.ok) {
           const json = (await res.json()) as { executorId?: string };
-          submittedExecutorId = json.executorId ?? null;
+          submittedExecutorId = json.executorId || null;
         } else {
           const text = await res.text();
           return reply.status(502).send({
@@ -253,7 +253,7 @@ function serializeDraft(d: {
       sts: d.carSts,
     },
     executorTariffs: d.executorTariffs ? JSON.parse(d.executorTariffs) : [],
-    brandingWrap: d.brandingWrap ?? false,
-    brandingLightbox: d.brandingLightbox ?? false,
+    brandingWrap: d.brandingWrap || false,
+    brandingLightbox: d.brandingLightbox || false,
   };
 }

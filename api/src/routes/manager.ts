@@ -10,7 +10,7 @@ import {
 } from "../lib/yandex-fleet.js";
 
 async function requireManager(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) ?? "";
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData) {
     return reply.status(401).send({
       error: "Missing x-telegram-init-data",
@@ -81,11 +81,11 @@ export async function managerRoutes(app: FastifyInstance) {
         managerId,
         yandexDriverId: driver.yandexId,
         driverPhone: driver.phone,
-        cachedName: driver.name ?? undefined,
+        cachedName: driver.name || undefined,
       },
       update: {
         driverPhone: driver.phone,
-        cachedName: driver.name ?? undefined,
+        cachedName: driver.name || undefined,
       },
     });
 
@@ -134,7 +134,7 @@ export async function managerRoutes(app: FastifyInstance) {
         id: link.id,
         yandexDriverId: link.yandexDriverId,
         phone: link.driverPhone,
-        name: link.cachedName ?? live?.name ?? null,
+        name: link.cachedName || live?.name || null,
         balance: live?.balance,
         workStatus: live?.workStatus,
       };

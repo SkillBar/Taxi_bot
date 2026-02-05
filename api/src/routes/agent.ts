@@ -4,7 +4,7 @@ import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) ?? "";
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData || !validateInitData(initData, config.botToken)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
@@ -26,11 +26,11 @@ export async function agentRoutes(app: FastifyInstance) {
       if (!external.found || !external.isActive) {
         return reply.send({
           found: false,
-          message: external.message ?? "Ваш номер не найден в системе. Обратитесь к администратору.",
+          message: external.message || "Ваш номер не найден в системе. Обратитесь к администратору.",
         });
       }
 
-      const agent = await upsertAgentFromExternal(phone, external.externalId ?? null, true);
+      const agent = await upsertAgentFromExternal(phone, external.externalId || null, true);
       return reply.send({ found: true, agentId: agent.id });
     }
 
@@ -47,7 +47,7 @@ export async function agentRoutes(app: FastifyInstance) {
   app.post<{
     Body: { phone: string; telegramUserId: string };
   }>("/link", async (req, reply) => {
-    const phone = normalizePhone((req.body as any)?.phone ?? "");
+    const phone = normalizePhone((req.body as any)?.phone || "");
     const telegramUserId = (req.body as any)?.telegramUserId;
     if (!phone || !telegramUserId) return reply.status(400).send({ error: "phone and telegramUserId required" });
 
@@ -60,7 +60,7 @@ export async function agentRoutes(app: FastifyInstance) {
       if (!external?.found || !external.isActive) {
         return reply.status(404).send({ error: "Agent not found" });
       }
-      agent = await upsertAgentFromExternal(phone, external.externalId ?? null, true);
+      agent = await upsertAgentFromExternal(phone, external.externalId || null, true);
     }
 
     await prisma.agent.update({
@@ -78,7 +78,7 @@ export async function agentRoutes(app: FastifyInstance) {
     if (!agent || !agent.isActive) return reply.status(404).send({ error: "Agent not found" });
     return reply.send({
       agentId: agent.id,
-      yandexEmail: agent.yandexEmail ?? undefined,
+      yandexEmail: agent.yandexEmail || undefined,
     });
   });
 
@@ -126,7 +126,7 @@ export async function agentRoutes(app: FastifyInstance) {
     preHandler: authFromInitData,
   }, async (req, reply) => {
     const telegramUserId = String((req as any).telegramUserId);
-    const { commissionPercent } = req.body ?? {};
+    const { commissionPercent } = req.body || {};
     if (typeof commissionPercent !== "number" || commissionPercent < 0 || commissionPercent > 100)
       return reply.status(400).send({ error: "commissionPercent 0-100 required" });
 
@@ -169,9 +169,9 @@ async function checkExternalAgent(phone: string): Promise<ExternalAgentCheck | n
   }
 
   const data = (await res.json()) as any;
-  const found = Boolean(data?.found ?? data?.isFound ?? data?.ok);
-  const externalId = data?.externalId ?? data?.agentId ?? data?.id ?? null;
-  const isActive = data?.isActive ?? data?.active ?? found;
+  const found = Boolean(data?.found || data?.isFound || data?.ok);
+  const externalId = data?.externalId || data?.agentId || data?.id || null;
+  const isActive = data?.isActive || data?.active || found;
   const message = data?.message;
   return { found, externalId, isActive, message };
 }
@@ -191,14 +191,14 @@ async function upsertAgentFromExternal(phone: string, externalId: string | null,
   if (existingByPhone) {
     return prisma.agent.update({
       where: { id: existingByPhone.id },
-      data: { externalId: externalId ?? existingByPhone.externalId, isActive },
+      data: { externalId: externalId || existingByPhone.externalId, isActive },
     });
   }
 
   return prisma.agent.create({
     data: {
       phone,
-      externalId: externalId ?? undefined,
+      externalId: externalId || undefined,
       isActive,
     },
   });

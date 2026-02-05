@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import { validateInitData, parseInitData } from "../lib/telegram.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) ?? "";
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData || !validateInitData(initData, config.botToken)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
@@ -38,7 +38,7 @@ export async function statsRoutes(app: FastifyInstance) {
     }
     if (!agent) return reply.status(404).send({ error: "Agent not found" });
 
-    const period = req.query.period ?? "month";
+    const period = req.query.period || "month";
     const now = new Date();
     let from: Date;
     if (period === "day") {

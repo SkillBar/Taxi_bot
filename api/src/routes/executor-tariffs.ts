@@ -3,7 +3,7 @@ import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) ?? "";
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData || !validateInitData(initData, config.botToken)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
@@ -31,8 +31,8 @@ export async function executorTariffsRoutes(app: FastifyInstance) {
   }>("/", {
     preHandler: authFromInitData,
   }, async (req, reply) => {
-    const type = req.query.type ?? "driver";
-    const list = EXECUTOR_TARIFFS[type] ?? EXECUTOR_TARIFFS.driver;
+    const type = req.query.type || "driver";
+    const list = EXECUTOR_TARIFFS[type] || EXECUTOR_TARIFFS.driver;
     return reply.send({ type, tariffs: list });
   });
 }

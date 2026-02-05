@@ -40,7 +40,7 @@ const app = await buildApp();
 if (!process.env.VERCEL) {
   const { config } = await import("./config.js");
   const host = config.host || "0.0.0.0";
-  const basePort = config.port || 3001;
+  const basePort = Number(process.env.PORT || 3001);
   const maxTries = 10;
 
   async function tryListen(tryPort: number): Promise<void> {

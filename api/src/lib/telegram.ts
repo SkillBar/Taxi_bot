@@ -31,7 +31,7 @@ export function validateInitData(initData: string, botToken: string): boolean {
 export function parseInitData(initData: string): { user?: { id: number }; auth_date?: string } {
   const params = new URLSearchParams(initData);
   const userStr = params.get("user");
-  const authDate = params.get("auth_date") ?? undefined;
+  const authDate = params.get("auth_date") || undefined;
   let user: { id: number } | undefined;
   if (userStr) {
     try {
