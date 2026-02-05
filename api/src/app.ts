@@ -38,14 +38,14 @@ function getApp(): Promise<FastifyInstance> {
 }
 
 /**
- * Vercel expects default export to be a function (request handler), not a Promise.
- * This handler forwards Node req/res to the Fastify app.
+ * Vercel expects default export to be a function (request handler).
+ * Sync function that returns Promise — better interop with some runtimes.
  */
-export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse
-): Promise<void> {
-  const app = await getApp();
-  await app.ready();
-  app.server.emit("request", req, res);
+function handler(req: IncomingMessage, res: ServerResponse): void {
+  void (async () => {
+    const app = await getApp();
+    await app.ready();
+    app.server.emit("request", req, res);
+  })();
 }
+export default handler;
