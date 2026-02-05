@@ -3,7 +3,7 @@
  * Exports a handler function (not the app) so Vercel accepts the default export.
  * Ensures app.ready() before handling each request.
  */
-import app from "./_dist/app.js";
+import app from "./_dist/index.js";
 
 export default async function handler(req, res) {
   await app.ready();
