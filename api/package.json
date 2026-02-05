@@ -2,13 +2,15 @@
   "name": "api",
   "version": "1.0.0",
   "type": "module",
+  "engines": { "node": ">=20" },
   "main": "_dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "node scripts/check-no-nullish.cjs && mkdir -p public && rm -rf dist && tsc --outDir ./_dist",
     "check:no-nullish": "node scripts/check-no-nullish.cjs",
     "start": "node _dist/index.js",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "postinstall": "node scripts/patch-fastify-nullish.cjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

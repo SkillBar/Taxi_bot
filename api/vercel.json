@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.js"
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.js" }],
+  "functions": {
+    "index.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
     }
-  ]
+  }
 }
