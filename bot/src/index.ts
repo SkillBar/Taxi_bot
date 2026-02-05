@@ -23,8 +23,8 @@ bot.use(
   })
 );
 
-const API_URL = (process.env.API_URL ?? "http://localhost:3001").replace(/\/$/, "");
-const WEBAPP_URL = (process.env.WEBAPP_URL ?? "").replace(/\/$/, "");
+const API_URL = (process.env.API_URL || "http://localhost:3001").replace(/\/$/, "");
+const WEBAPP_URL = (process.env.WEBAPP_URL || "").replace(/\/$/, "");
 
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, "");
@@ -80,7 +80,7 @@ bot.on("message:contact", async (ctx) => {
   const data = (await res.json()) as { found?: boolean; agentId?: string; message?: string };
   if (!data.found) {
     await ctx.reply(
-      data.message ?? "Ваш номер не найден в системе. Обратитесь к администратору."
+      data.message || "Ваш номер не найден в системе. Обратитесь к администратору."
     );
     return;
   }
@@ -102,7 +102,7 @@ bot.on("message:contact", async (ctx) => {
 });
 
 bot.on("message:text", async (ctx) => {
-  const text = ctx.message.text?.trim() ?? "";
+  const text = ctx.message.text?.trim() || "";
   if (ctx.session.step === "email") {
     const emailRe = /^[^\s@]+@(yandex\.ru|ya\.ru|yandex\.com|yandex\.by|yandex\.kz)$/i;
     if (!emailRe.test(text)) {
@@ -149,8 +149,8 @@ bot.on("message:text", async (ctx) => {
       const periodLabel = stats.period === "day" ? "за день" : stats.period === "week" ? "за неделю" : "за месяц";
       await ctx.reply(
         `📊 Статистика (${periodLabel})\n\n` +
-          `Всего зарегистрировано: ${stats.totalRegistered ?? 0}\n` +
-          `За период: ${stats.registeredInPeriod ?? 0}`,
+          `Всего зарегистрировано: ${stats.totalRegistered || 0}\n` +
+          `За период: ${stats.registeredInPeriod || 0}`,
         WEBAPP_URL ? { reply_markup: { inline_keyboard: [[{ text: "Открыть в кабинете", url: `${WEBAPP_URL}/stats` }]] } } : undefined
       );
       return;
@@ -179,7 +179,7 @@ bot.on("message:web_app_data", async (ctx) => {
       linkStats?: string;
     };
     if (data.action === "submitted") {
-      let text = data.message ?? "Спасибо, исполнитель успешно зарегистрирован ✅";
+      let text = data.message || "Спасибо, исполнитель успешно зарегистрирован ✅";
       if (data.linkExecutor) text += `\n\nПосмотреть данные: ${data.linkExecutor}`;
       if (data.linkStats) text += `\nСтатистика: ${data.linkStats}`;
       await ctx.reply(text, { reply_markup: { remove_keyboard: true } });

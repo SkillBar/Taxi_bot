@@ -1,2 +1,4 @@
 # Не загружать старую папку сборки (сборка идёт в _dist). Исключает "Invalid export" на Vercel.
 dist
+# При ошибке "BinaryExpression process.env.PORT ?? 3001": в api/src не использовать ?? (только ||).
+# Сборка: tsconfig target ES2019, check-no-nullish перед tsc. В node_modules (fastify) ?? остаётся — при падении nft попробовать Node 20 в настройках Vercel.

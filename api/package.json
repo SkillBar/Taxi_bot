@@ -5,7 +5,8 @@
   "main": "_dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "mkdir -p public && rm -rf dist && tsc --outDir ./_dist",
+    "build": "node scripts/check-no-nullish.cjs && mkdir -p public && rm -rf dist && tsc --outDir ./_dist",
+    "check:no-nullish": "node scripts/check-no-nullish.cjs",
     "start": "node _dist/index.js",
     "db:seed": "tsx prisma/seed.ts"
   },
