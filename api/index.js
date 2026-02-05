@@ -1,8 +1,11 @@
 /**
- * Vercel entry: export a function so the module has a valid default at load time.
- * Lazy-load dist/app.js on first request to avoid "Invalid export" from loading app.js directly.
+ * Vercel Serverless Entry Point.
+ * Exports a handler function (not the app) so Vercel accepts the default export.
+ * Ensures app.ready() before handling each request.
  */
+import app from "./dist/app.js";
+
 export default async function handler(req, res) {
-  const { default: appHandler } = await import("./dist/app.js");
-  return appHandler(req, res);
+  await app.ready();
+  app.server.emit("request", req, res);
 }

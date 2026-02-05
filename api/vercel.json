@@ -1,7 +1,15 @@
 {
-  "buildCommand": "npm ci && npx prisma generate && npm run build",
-  "installCommand": "npm ci",
+  "version": 2,
   "builds": [
-    { "src": "index.js", "use": "@vercel/node" }
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.js"
+    }
   ]
 }

@@ -1,6 +1,5 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,22 +29,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-// Lazy singleton for Vercel (one app per function instance).
-let appPromise: Promise<FastifyInstance> | null = null;
-function getApp(): Promise<FastifyInstance> {
-  if (!appPromise) appPromise = buildApp();
-  return appPromise;
+// Single app instance: default export for Vercel (must be function or server).
+const app = await buildApp();
+
+// Listen only when running locally, NOT on Vercel (serverless).
+// Equivalent to: if (require.main === module) { app.listen(...) }
+if (!process.env.VERCEL) {
+  const { config } = await import("./config.js");
+  const host = config.host ?? "0.0.0.0";
+  const port = Number(config.port) || 3001;
+  app.listen({ host, port }).catch((err) => {
+    app.log.error(err);
+    process.exit(1);
+  });
 }
 
-/**
- * Vercel expects default export to be a function (request handler).
- * Sync function that returns Promise — better interop with some runtimes.
- */
-function handler(req: IncomingMessage, res: ServerResponse): void {
-  void (async () => {
-    const app = await getApp();
-    await app.ready();
-    app.server.emit("request", req, res);
-  })();
-}
-export default handler;
+export default app;
