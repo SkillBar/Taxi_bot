@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useBackButton } from "@telegram-apps/sdk-react";
+import { backButton } from "@telegram-apps/sdk-react";
 import {
   List,
   Section,
@@ -21,16 +21,14 @@ const isWorking = (status?: string) =>
   status === "free";
 
 export function DriverDetails({ driver, onBack }: DriverDetailsProps) {
-  const backButton = useBackButton();
-
   useEffect(() => {
-    backButton.show();
-    const off = backButton.onClick(onBack);
+    if (backButton.show.isAvailable()) backButton.show();
+    const off = backButton.onClick.isAvailable() ? backButton.onClick(onBack) : () => {};
     return () => {
       off();
-      backButton.hide();
+      if (backButton.hide.isAvailable()) backButton.hide();
     };
-  }, [backButton, onBack]);
+  }, [onBack]);
 
   const statusLabel = isWorking(driver.workStatus) ? "На линии" : "Офлайн";
 
@@ -44,7 +42,7 @@ export function DriverDetails({ driver, onBack }: DriverDetailsProps) {
       <Section>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px" }}>
           <Avatar
-            size={80}
+            size={96}
             acronym={driver.name?.[0] ?? driver.phone?.[0] ?? "?"}
           />
           <h2 style={{ margin: "12px 0 4px", fontSize: 20 }}>
