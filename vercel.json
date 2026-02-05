@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd webapp && npm ci && npm run build",
+  "buildCommand": "cd webapp && npm ci && npx vite build",
   "outputDirectory": "webapp/dist",
   "framework": null,
   "installCommand": "cd webapp && npm ci",
