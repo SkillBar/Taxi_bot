@@ -1,4 +1,5 @@
 # Monorepo: WebApp и API из одного репо. api/ и api/prisma/ НЕ игнорируем — API (Root Directory: api) нужен api/prisma/schema.prisma для Prisma.
+api/dist
 bot/
 node_modules/
 .env
