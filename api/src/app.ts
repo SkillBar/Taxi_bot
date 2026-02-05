@@ -18,7 +18,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, {
     // Разрешаем любой origin (для dev и Mini App из Telegram). В проде можно задать WEBAPP_ORIGIN.
-    origin: process.env.WEBAPP_ORIGIN ?? true,
+    origin: process.env.WEBAPP_ORIGIN || true,
   });
 
   app.get("/health", async () => ({ ok: true }));
@@ -39,8 +39,8 @@ const app = await buildApp();
 // При EADDRINUSE пробуем следующие порты (3002, 3003, … до 3010).
 if (!process.env.VERCEL) {
   const { config } = await import("./config.js");
-  const host = config.host ?? "0.0.0.0";
-  const basePort = Number(config.port) || 3001;
+  const host = config.host || "0.0.0.0";
+  const basePort = config.port || 3001;
   const maxTries = 10;
 
   async function tryListen(tryPort: number): Promise<void> {

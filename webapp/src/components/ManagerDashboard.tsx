@@ -10,6 +10,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
+import { DriverDetails } from "./DriverDetails";
 
 export interface Driver {
   id: string;
@@ -18,6 +19,7 @@ export interface Driver {
   phone: string;
   balance?: number;
   workStatus?: string;
+  limit?: number;
 }
 
 export function ManagerDashboard() {
@@ -25,6 +27,7 @@ export function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
 
   const fetchDrivers = async () => {
     try {
@@ -75,6 +78,15 @@ export function ManagerDashboard() {
   const isWorking = (status?: string) =>
     status?.toLowerCase() === "working" || status?.toLowerCase() === "online" || status === "free";
 
+  if (selectedDriver) {
+    return (
+      <DriverDetails
+        driver={selectedDriver}
+        onBack={() => setSelectedDriver(null)}
+      />
+    );
+  }
+
   return (
     <List>
       <Section header="Добавить водителя">
@@ -115,6 +127,7 @@ export function ManagerDashboard() {
                   {isWorking(driver.workStatus) ? "На линии" : "Офлайн"}
                 </span>
               }
+              onClick={() => setSelectedDriver(driver)}
             >
               {driver.name ?? "Без имени"}
             </Cell>
