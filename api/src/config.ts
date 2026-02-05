@@ -1,5 +1,5 @@
 export const config = {
-  port: Number(process.env.PORT || 3001),
+  port: +(process.env.PORT || 3001) || 3001,
   host: process.env.HOST,
   databaseUrl: process.env.DATABASE_URL!,
   botToken: process.env.BOT_TOKEN!,
