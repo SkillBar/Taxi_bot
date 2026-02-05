@@ -10,13 +10,15 @@ import cors from "@fastify/cors";
 import { agentRoutes } from "./routes/agent.js";
 import { draftRoutes } from "./routes/draft.js";
 import { executorTariffsRoutes } from "./routes/executor-tariffs.js";
+import { managerRoutes } from "./routes/manager.js";
 import { statsRoutes } from "./routes/stats.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
-    origin: true, // in prod restrict to WEBAPP_ORIGIN
+    // Разрешаем любой origin (для dev и Mini App из Telegram). В проде можно задать WEBAPP_ORIGIN.
+    origin: process.env.WEBAPP_ORIGIN ?? true,
   });
 
   app.get("/health", async () => ({ ok: true }));
@@ -24,6 +26,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(agentRoutes, { prefix: "/api/agents" });
   await app.register(draftRoutes, { prefix: "/api/drafts" });
   await app.register(executorTariffsRoutes, { prefix: "/api/executor-tariffs" });
+  await app.register(managerRoutes, { prefix: "/api/manager" });
   await app.register(statsRoutes, { prefix: "/api/stats" });
 
   return app;

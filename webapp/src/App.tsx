@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { AppRoot } from "@telegram-apps/telegram-ui";
 import { getCurrentDraft, createDraft, type Draft } from "./api";
 import { RegistrationFlow } from "./RegistrationFlow";
+import { ManagerDashboard } from "./components/ManagerDashboard";
 
 export default function App() {
-  const [screen, setScreen] = useState<"welcome" | "loading" | "resume" | "flow">("welcome");
+  const [screen, setScreen] = useState<"welcome" | "loading" | "resume" | "flow" | "manager">("welcome");
   const [type, setType] = useState<"driver" | "courier">("driver");
   const [draft, setDraft] = useState<Draft | null | "new">(null);
 
@@ -66,6 +68,27 @@ export default function App() {
     setScreen("welcome");
   };
 
+  // ——— Кабинет менеджера (список водителей + привязка) ———
+  if (screen === "manager") {
+    return (
+      <AppRoot>
+        <main style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
+          <div style={{ paddingBottom: 24 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setScreen("welcome")}
+              style={{ margin: 12 }}
+            >
+              ← Назад
+            </button>
+            <ManagerDashboard />
+          </div>
+        </main>
+      </AppRoot>
+    );
+  }
+
   // ——— Первый экран: лого + выбор типа регистрации ———
   if (screen === "welcome") {
     return (
@@ -87,6 +110,14 @@ export default function App() {
           onClick={() => startRegistration("courier")}
         >
           Регистрация доставка / курьер
+        </button>
+        <button
+          type="button"
+          className="welcome-btn secondary"
+          onClick={() => setScreen("manager")}
+          style={{ marginTop: 8, background: "transparent", border: "2px solid var(--tg-theme-button-color)" }}
+        >
+          Кабинет менеджера
         </button>
       </div>
     );

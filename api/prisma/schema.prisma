@@ -22,6 +22,26 @@ model Agent {
   drafts         RegistrationDraft[]
 }
 
+model Manager {
+  id         String   @id @default(cuid())
+  telegramId String?  @unique // Telegram user ID менеджера
+  name       String?
+  drivers    DriverLink[]
+}
+
+model DriverLink {
+  id             String   @id @default(cuid())
+  managerId      String
+  manager        Manager  @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  yandexDriverId String   // driver_profile_id из Яндекса
+  driverPhone    String
+  cachedName     String?
+  createdAt      DateTime @default(now())
+
+  @@unique([managerId, yandexDriverId])
+  @@index([managerId])
+}
+
 model AgentTariff {
   id        String   @id @default(cuid())
   agentId   String

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { initTelegramWebApp } from "./telegramWebApp";
 import App from "./App";
 import "./index.css";
+import "@telegram-apps/telegram-ui/dist/styles.css";
 
 // Инициализация по гайдлайнам Telegram Mini Apps (ready + expand + тема)
 initTelegramWebApp();
