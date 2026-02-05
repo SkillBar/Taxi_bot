@@ -7,8 +7,9 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 import { config } from "./config.js";
 import { buildApp } from "./app.js";
+import handler from "./app.js";
 
-// Local dev only. On Vercel the entry is app.js (handler function).
+// Local dev only. On Vercel the entry is index.js or app.js (handler function).
 if (!process.env.VERCEL) {
   const app = await buildApp();
   const host = config.host ?? "0.0.0.0";
@@ -20,3 +21,6 @@ if (!process.env.VERCEL) {
     process.exit(1);
   }
 }
+
+// So Vercel gets a function when it loads index.js (it may prefer index over app).
+export default handler;
