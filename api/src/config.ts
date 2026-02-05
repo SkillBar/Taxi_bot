@@ -1,10 +1,6 @@
 export const config = {
-  port:
-    process.env.PORT !== undefined &&
-    process.env.PORT !== null &&
-    process.env.PORT !== ""
-      ? +process.env.PORT
-      : 3001,
+  // Literal only: Vercel NFT parser fails on ??, ||, ternary, Number(). On Vercel we don't listen().
+  port: 3001,
   host: process.env.HOST,
   databaseUrl: process.env.DATABASE_URL!,
   botToken: process.env.BOT_TOKEN!,
