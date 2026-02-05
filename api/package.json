@@ -5,7 +5,7 @@
   "main": "_dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "rm -rf dist && tsc --outDir ./_dist",
+    "build": "mkdir -p public && rm -rf dist && tsc --outDir ./_dist",
     "start": "node _dist/index.js",
     "db:seed": "tsx prisma/seed.ts"
   },
