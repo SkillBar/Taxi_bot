@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,5 +30,22 @@ export async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-// Default export for Vercel (entry point is app.js) — must be a Fastify server instance.
-export default await buildApp();
+// Lazy singleton for Vercel (one app per function instance).
+let appPromise: Promise<FastifyInstance> | null = null;
+function getApp(): Promise<FastifyInstance> {
+  if (!appPromise) appPromise = buildApp();
+  return appPromise;
+}
+
+/**
+ * Vercel expects default export to be a function (request handler), not a Promise.
+ * This handler forwards Node req/res to the Fastify app.
+ */
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const app = await getApp();
+  await app.ready();
+  app.server.emit("request", req, res);
+}
