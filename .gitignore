@@ -10,7 +10,9 @@ node_modules/
 # Сборка
 dist/
 webapp/dist/
+api/_dist
 api/_dist/
+api/dist
 bot/dist/
 
 # Логи и кэш
