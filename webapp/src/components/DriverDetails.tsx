@@ -22,11 +22,11 @@ const isWorking = (status?: string) =>
 
 export function DriverDetails({ driver, onBack }: DriverDetailsProps) {
   useEffect(() => {
-    if (backButton.show.isAvailable()) backButton.show();
-    const off = backButton.onClick.isAvailable() ? backButton.onClick(onBack) : () => {};
+    if (backButton.show?.isAvailable?.()) backButton.show();
+    const off = backButton.onClick?.isAvailable?.() ? backButton.onClick(onBack) : () => {};
     return () => {
-      off();
-      if (backButton.hide.isAvailable()) backButton.hide();
+      if (typeof off === "function") off();
+      if (backButton.hide?.isAvailable?.()) backButton.hide();
     };
   }, [onBack]);
 
