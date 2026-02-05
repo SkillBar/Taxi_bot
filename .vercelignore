@@ -1,5 +1,4 @@
-# Исключаем только то, что не нужно ни WebApp, ни API (оба проекта из одного репо).
-# api/ не исключаем — проект API (Root Directory: api) должен видеть папку api/
+# Monorepo: WebApp и API из одного репо. api/ и api/prisma/ НЕ игнорируем — API (Root Directory: api) нужен api/prisma/schema.prisma для Prisma.
 bot/
 node_modules/
 .env

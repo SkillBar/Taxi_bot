@@ -28,3 +28,6 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   return app;
 }
+
+// Default export for Vercel (entry point is app.js) — must be a Fastify server instance.
+export default await buildApp();

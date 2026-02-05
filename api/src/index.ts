@@ -6,11 +6,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 import { config } from "./config.js";
-import { buildApp } from "./app.js";
+import app from "./app.js";
 
-const app = await buildApp();
-
-// On Vercel we only export the app (no listen); locally we start the server.
+// On Vercel entry is app.js (no listen); locally we start the server here.
 if (!process.env.VERCEL) {
   const host = config.host ?? "0.0.0.0";
   const port = Number(config.port) || 3001;
@@ -22,4 +20,5 @@ if (!process.env.VERCEL) {
   }
 }
 
+// Default export so that index.js also works as Vercel entry point if selected.
 export default app;
