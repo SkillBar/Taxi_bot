@@ -4,8 +4,10 @@
   "scripts": {
     "push": "sh scripts/push.sh",
     "deploy:push": "sh scripts/push.sh",
+    "free-port": "sh scripts/free-port.sh",
     "dev": "npm run dev:api & npm run dev:bot & wait",
     "dev:api": "cd api && npm run dev",
+    "dev:api:free": "npm run free-port -- 3001 && npm run dev:api",
     "dev:bot": "cd bot && npm run dev",
     "dev:webapp": "cd webapp && npm run dev",
     "setup": "cd api && npm install && npx prisma generate && npx prisma db push && npm run db:seed",

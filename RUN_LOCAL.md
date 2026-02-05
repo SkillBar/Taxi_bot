@@ -126,6 +126,7 @@ Telegram открывает Mini App **только по HTTPS**. Локальн
 
 | Ошибка | Что сделать |
 |--------|-------------|
+| `listen EADDRINUSE: address already in use 0.0.0.0:3001` | API сам попробует порты 3002, 3003, … до 3010. Либо освободите порт: `npm run free-port` (убивает процесс на 3001), затем снова `npm run dev:api`. Либо задайте в `.env`: `PORT=3002`. |
 | `BOT_TOKEN` undefined | Проверьте, что в корне проекта есть `.env` с `BOT_TOKEN=...`. |
 | `DATABASE_URL` / Prisma | Проверьте, что PostgreSQL запущен и строка в `.env` верная; повторите `npx prisma db push`. |
 | «Ваш номер не найден в системе» | Выполните сид: `cd api && npm run db:seed` и отправьте контакт с номером +79991234567. |
