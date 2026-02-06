@@ -62,6 +62,41 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.send({ found: true, agentId: agent.id });
   });
 
+  // Link from bot: после requestContact в Mini App бот получает контакт и вызывает этот endpoint
+  app.post<{
+    Body: { phone: string; telegramUserId: string };
+  }>("/link-from-bot", async (req, reply) => {
+    const secret = (req.headers["x-api-secret"] as string) || "";
+    if (!config.apiSecret || secret !== config.apiSecret) {
+      return reply.status(401).send({ error: "Invalid or missing X-Api-Secret" });
+    }
+    const body = req.body as { phone?: string; telegramUserId?: string };
+    const phone = normalizePhone(body?.phone || "");
+    const telegramUserId = body?.telegramUserId;
+    if (!phone || !telegramUserId) {
+      return reply.status(400).send({ error: "phone and telegramUserId required" });
+    }
+
+    let agent = await prisma.agent.findFirst({
+      where: { phone, isActive: true },
+    });
+    if (!agent) {
+      const external = await checkExternalAgent(phone);
+      if (!external?.found || !external.isActive) {
+        return reply.status(404).send({
+          error: "Agent not found",
+          message: external?.message || "Ваш номер не найден в системе. Обратитесь к администратору.",
+        });
+      }
+      agent = await upsertAgentFromExternal(phone, external.externalId || null, true);
+    }
+    await prisma.agent.update({
+      where: { id: agent.id },
+      data: { telegramUserId: String(telegramUserId) },
+    });
+    return reply.send({ agentId: agent.id });
+  });
+
   // Link telegram user to agent (initData обязателен — берём telegramUserId из него)
   app.post<{
     Body: { phone: string };

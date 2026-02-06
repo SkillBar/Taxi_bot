@@ -84,13 +84,17 @@ bot.on("message:contact", async (ctx) => {
     );
     return;
   }
-  const linkRes = await fetch(`${API_URL}/api/agents/link`, {
+  const linkRes = await fetch(`${API_URL}/api/agents/link-from-bot`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(process.env.API_SECRET && { "X-Api-Secret": process.env.API_SECRET }),
+    },
     body: JSON.stringify({ phone, telegramUserId: String(ctx.from?.id) }),
   });
   if (!linkRes.ok) {
-    await ctx.reply("Ошибка привязки аккаунта. Повторите /start");
+    const err = (await linkRes.json().catch(() => ({}))) as { message?: string };
+    await ctx.reply(err.message || "Ошибка привязки аккаунта. Повторите /start");
     return;
   }
   ctx.session.step = "email";

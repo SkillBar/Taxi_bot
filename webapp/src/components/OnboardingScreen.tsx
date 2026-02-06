@@ -1,42 +1,90 @@
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
-import { Input, Button } from "@telegram-apps/telegram-ui";
-import { linkAgentByPhone } from "../api";
+import { getAgentsMe } from "../api";
 
-const normalizePhone = (raw: string): string => {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10 && digits.startsWith("9")) return "+7" + digits;
-  if (digits.length === 11 && digits.startsWith("7")) return "+" + digits;
-  if (digits.length === 11 && digits.startsWith("8")) return "+7" + digits.slice(1);
-  return raw.startsWith("+") ? raw : "+" + (digits || raw);
-};
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 30000;
+
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        requestContact?: (callback: (sent: boolean) => void) => void;
+        MainButton?: {
+          show: () => void;
+          hide: () => void;
+          setText: (text: string) => void;
+          onClick: (cb: () => void) => void;
+          offClick: (cb: () => void) => void;
+          showProgress?: (show: boolean) => void;
+        };
+      };
+    };
+  }
+}
 
 export interface OnboardingScreenProps {
   onLinked: () => void;
 }
 
 export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
-  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
-    const normalized = normalizePhone(phone.trim());
-    if (!normalized || normalized.length < 11) {
-      setError("Введите номер телефона в формате +7 XXX XXX-XX-XX");
+  const pollUntilLinked = useCallback(() => {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    const tick = async () => {
+      if (Date.now() > deadline) {
+        setLoading(false);
+        setError("Время ожидания истекло. Закройте и откройте приложение снова.");
+        return;
+      }
+      try {
+        const me = await getAgentsMe();
+        if (me.linked) {
+          setLoading(false);
+          onLinked();
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    tick();
+  }, [onLinked]);
+
+  const handleRequestContact = useCallback(() => {
+    const wa = window.Telegram?.WebApp;
+    if (!wa?.requestContact) {
+      setError("Подтверждение контакта недоступно. Обновите Telegram.");
       return;
     }
     setError(null);
     setLoading(true);
-    try {
-      await linkAgentByPhone(normalized);
-      onLinked();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось подключить. Обратитесь к администратору.");
-    } finally {
-      setLoading(false);
+    wa.requestContact((sent) => {
+      if (sent) {
+        pollUntilLinked();
+      } else {
+        setLoading(false);
+        setError("Нужно поделиться контактом для продолжения.");
+      }
+    });
+  }, [pollUntilLinked]);
+
+  useEffect(() => {
+    const mainBtn = window.Telegram?.WebApp?.MainButton;
+    if (mainBtn) {
+      mainBtn.setText("Подтвердить номер");
+      mainBtn.show();
+      mainBtn.onClick(handleRequestContact);
+      return () => {
+        mainBtn.offClick?.(handleRequestContact);
+        mainBtn.hide();
+      };
     }
-  };
+    return undefined;
+  }, [handleRequestContact]);
 
   return (
     <AppRoot>
@@ -52,22 +100,18 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       >
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color)" }}>
-            Подключение по номеру Telegram
+            Добро пожаловать в кабинет агента такси!
           </h1>
           <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", margin: 0 }}>
-            Введите номер телефона, с которым вы зарегистрированы у агента
+            Подтвердите номер телефона, с которого вы зарегистрированы как агент таксопарка.
           </p>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <Input
-            header="Номер телефона"
-            placeholder="+7 999 123-45-67"
-            value={phone}
-            onChange={(e) => setPhone((e.target as HTMLInputElement).value)}
-            disabled={loading}
-          />
-        </div>
+        {loading && (
+          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", textAlign: "center", marginBottom: 16 }}>
+            Подтверждаем номер…
+          </p>
+        )}
 
         {error && (
           <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginBottom: 16 }}>
@@ -75,9 +119,17 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           </p>
         )}
 
-        <Button size="l" stretched onClick={handleSubmit} loading={loading}>
-          Подключить
-        </Button>
+        {!window.Telegram?.WebApp?.MainButton && (
+          <button
+            type="button"
+            className="primary"
+            onClick={handleRequestContact}
+            disabled={loading}
+            style={{ marginTop: 16 }}
+          >
+            Подтвердить номер
+          </button>
+        )}
       </main>
     </AppRoot>
   );
