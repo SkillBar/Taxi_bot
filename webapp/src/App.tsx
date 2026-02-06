@@ -1,15 +1,34 @@
-import { useState } from "react";
-import { AppRoot } from "@telegram-apps/telegram-ui";
-import { getCurrentDraft, createDraft, type Draft } from "./api";
+import { useState, useEffect } from "react";
+import { getAgentsMe, getCurrentDraft, createDraft, type Draft } from "./api";
+import { OnboardingScreen } from "./components/OnboardingScreen";
+import { AgentHomeScreen } from "./components/AgentHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
 
+type Screen =
+  | "init"       // проверка linked
+  | "onboarding" // подключение по номеру
+  | "home"       // приветствие + список исполнителей + кнопки
+  | "loading"
+  | "resume"
+  | "flow"
+  | "manager";   // полный кабинет менеджера (список + добавление)
+
 export default function App() {
-  const [screen, setScreen] = useState<"welcome" | "loading" | "resume" | "flow" | "manager">("welcome");
+  const [screen, setScreen] = useState<Screen>("init");
   const [type, setType] = useState<"driver" | "courier">("driver");
   const [draft, setDraft] = useState<Draft | null | "new">(null);
 
-  // ready() уже вызван в main.tsx при загрузке
+  // При загрузке: если пользователь уже привязан — показываем главный экран, иначе онбординг
+  useEffect(() => {
+    getAgentsMe()
+      .then((me) => {
+        setScreen(me.linked ? "home" : "onboarding");
+      })
+      .catch(() => {
+        setScreen("onboarding");
+      });
+  }, []);
 
   const startRegistration = (selectedType: "driver" | "courier") => {
     setType(selectedType);
@@ -28,7 +47,7 @@ export default function App() {
             })
             .catch((e) => {
               alert(e.message ?? "Ошибка создания черновика");
-              setScreen("welcome");
+              setScreen("home");
             });
         }
       })
@@ -41,7 +60,7 @@ export default function App() {
           })
           .catch((e) => {
             alert(e.message ?? "Ошибка создания черновика");
-            setScreen("welcome");
+            setScreen("home");
           });
       });
   };
@@ -63,74 +82,56 @@ export default function App() {
       });
   };
 
-  const backToWelcome = () => {
+  const backToHome = () => {
     setDraft(null);
-    setScreen("welcome");
+    setScreen("home");
   };
 
-  // ——— Кабинет менеджера (список водителей + привязка) ———
+  // —— Полный кабинет менеджера (список + добавление водителя) ———
   if (screen === "manager") {
     return (
-      <AppRoot>
-        <main style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
-          <div style={{ paddingBottom: 24 }}>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setScreen("welcome")}
-              style={{ margin: 12 }}
-            >
-              ← Назад
-            </button>
-            <ManagerDashboard />
-          </div>
-        </main>
-      </AppRoot>
-    );
-  }
-
-  // ——— Первый экран: лого + выбор типа регистрации ———
-  if (screen === "welcome") {
-    return (
-      <div className="welcome-screen">
-        <div className="welcome-logo" aria-hidden>
-          Лого
+      <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
+        <div style={{ padding: 12 }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setScreen("home")}
+            style={{ marginBottom: 8 }}
+          >
+            ← Назад
+          </button>
         </div>
-        <p className="welcome-info">Регистрация исполнителя</p>
-        <button
-          type="button"
-          className="welcome-btn primary"
-          onClick={() => startRegistration("driver")}
-        >
-          Зарегистрировать водителя
-        </button>
-        <button
-          type="button"
-          className="welcome-btn primary"
-          onClick={() => startRegistration("courier")}
-        >
-          Регистрация доставка / курьер
-        </button>
-        <button
-          type="button"
-          className="welcome-btn secondary"
-          onClick={() => setScreen("manager")}
-          style={{ marginTop: 8, background: "transparent", border: "2px solid var(--tg-theme-button-color)" }}
-        >
-          Кабинет менеджера
-        </button>
+        <ManagerDashboard />
       </div>
     );
   }
 
-  if (screen === "loading") {
+  // —— Онбординг: подключение по номеру Telegram ———
+  if (screen === "onboarding") {
+    return <OnboardingScreen onLinked={() => setScreen("home")} />;
+  }
+
+  // —— Главный экран: приветствие + исполнители + кнопки ———
+  if (screen === "home") {
     return (
-      <div style={{ padding: 20, textAlign: "center" }}>
+      <AgentHomeScreen
+        onRegisterDriver={() => startRegistration("driver")}
+        onRegisterCourier={() => startRegistration("courier")}
+        onOpenManager={() => setScreen("manager")}
+      />
+    );
+  }
+
+  // —— Инициализация или загрузка ———
+  if (screen === "init" || screen === "loading") {
+    return (
+      <div style={{ padding: 20, textAlign: "center", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
         Загрузка…
       </div>
     );
   }
 
+  // —— Продолжить регистрацию или начать заново ———
   if (screen === "resume" && draft && typeof draft === "object" && "id" in draft) {
     return (
       <div style={{ padding: 20 }}>
@@ -141,10 +142,14 @@ export default function App() {
         <button type="button" className="secondary" onClick={startOver}>
           Начать заново
         </button>
+        <button type="button" className="secondary" onClick={backToHome} style={{ marginTop: 8 }}>
+          На главную
+        </button>
       </div>
     );
   }
 
+  // —— Регистрация (драфт) ———
   if (screen === "flow" && draft && typeof draft === "object" && "id" in draft) {
     return (
       <RegistrationFlow
@@ -153,15 +158,15 @@ export default function App() {
         type={type}
         onClose={() => window.Telegram?.WebApp?.close?.()}
         onSendData={(data) => window.Telegram?.WebApp?.sendData?.(data)}
-        onBackToWelcome={backToWelcome}
+        onBackToWelcome={backToHome}
       />
     );
   }
 
   return (
     <div style={{ padding: 20 }}>
-      <button type="button" className="secondary" onClick={backToWelcome}>
-        Назад
+      <button type="button" className="secondary" onClick={backToHome}>
+        На главную
       </button>
     </div>
   );

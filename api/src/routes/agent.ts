@@ -14,6 +14,25 @@ async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function agentRoutes(app: FastifyInstance) {
+  // Текущий пользователь из initData (имя + привязка к агенту)
+  app.get("/me", async (req, reply) => {
+    const initData = (req.headers["x-telegram-init-data"] as string) || "";
+    if (!initData || !validateInitData(initData, config.botToken)) {
+      return reply.status(401).send({ error: "Invalid or missing initData" });
+    }
+    const { user } = parseInitData(initData);
+    if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
+    const agent = await prisma.agent.findUnique({
+      where: { telegramUserId: String(user.id) },
+    });
+    return reply.send({
+      telegramUserId: user.id,
+      firstName: user.first_name ?? null,
+      lastName: user.last_name ?? null,
+      linked: Boolean(agent?.isActive),
+    });
+  });
+
   // Check agent by phone (used by bot after contact share)
   app.get<{
     Querystring: { phone: string };
@@ -43,13 +62,19 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.send({ found: true, agentId: agent.id });
   });
 
-  // Link telegram user to agent (call after contact check so agent gets telegramUserId)
+  // Link telegram user to agent (initData обязателен — берём telegramUserId из него)
   app.post<{
-    Body: { phone: string; telegramUserId: string };
+    Body: { phone: string };
   }>("/link", async (req, reply) => {
+    const initData = (req.headers["x-telegram-init-data"] as string) || "";
+    if (!initData || !validateInitData(initData, config.botToken)) {
+      return reply.status(401).send({ error: "Invalid or missing initData" });
+    }
+    const { user } = parseInitData(initData);
+    if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
+    const telegramUserId = String(user.id);
     const phone = normalizePhone((req.body as any)?.phone || "");
-    const telegramUserId = (req.body as any)?.telegramUserId;
-    if (!phone || !telegramUserId) return reply.status(400).send({ error: "phone and telegramUserId required" });
+    if (!phone) return reply.status(400).send({ error: "phone required" });
 
     let agent = await prisma.agent.findFirst({
       where: { phone, isActive: true },

@@ -28,14 +28,21 @@ export function validateInitData(initData: string, botToken: string): boolean {
   return computed === hash;
 }
 
-export function parseInitData(initData: string): { user?: { id: number }; auth_date?: string } {
+export type TelegramUser = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+};
+
+export function parseInitData(initData: string): { user?: TelegramUser; auth_date?: string } {
   const params = new URLSearchParams(initData);
   const userStr = params.get("user");
   const authDate = params.get("auth_date") || undefined;
-  let user: { id: number } | undefined;
+  let user: TelegramUser | undefined;
   if (userStr) {
     try {
-      const u = JSON.parse(userStr) as { id: number };
+      const u = JSON.parse(userStr) as TelegramUser;
       user = u;
     } catch {
       // ignore

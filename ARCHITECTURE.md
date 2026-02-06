@@ -55,7 +55,7 @@
 - **Стек:** Node.js, **Fastify 4**, **Prisma 5**, PostgreSQL (Neon). TypeScript, ESM (`"type": "module"`).
 - **Сборка:** `npm run build` → `mkdir -p public && rm -rf dist && tsc --outDir ./_dist`. Исходники в `api/src/`, артефакты в `api/_dist/`. Папка `_dist` — чтобы Vercel не сканировал её как отдельные serverless-функции.
 - **Точка входа на Vercel:** `api/index.js` (не из `_dist`). Это обычный JS-файл: `import app from "./_dist/index.js"`, `export default async function handler(req, res) { await app.ready(); app.server.emit("request", req, res); }`. Vercel вызывает эту функцию; Fastify обрабатывает запрос.
-- **Маршруты:** `/health`, `/api/agents/*`, `/api/drafts/*`, `/api/executor-tariffs/*`, `/api/stats/*`. CORS включён.
+- **Маршруты:** `/health`, `/api/agents/*` (в т.ч. `GET /me` — имя + linked, `POST /link` — привязка по телефону, initData в заголовке), `/api/drafts/*`, `/api/manager/*` (при настроенном Yandex Fleet: `GET /me`, `GET /drivers`, `POST /link-driver`), `/api/executor-tariffs/*`, `/api/stats/*`. CORS включён.
 - **Данные:** Prisma, схема в `api/prisma/schema.prisma`. Для Neon: `DATABASE_URL` (pooled), `DIRECT_URL` (direct, для миграций). Опционально: внешняя проверка агента (`AGENT_CHECK_URL`).
 - **Деплой:** Отдельный проект Vercel, **Root Directory: `api`**. Build/Install команды задаются в Project Settings (не в `api/vercel.json`). Output Directory: `public` (пустая папка создаётся в build). В `api/vercel.json` только `rewrites`, без `builds`.
 
@@ -65,7 +65,11 @@
 
 - **Стек:** **React 18**, **Vite 5**, TypeScript. Одна страница (SPA), роутинг при необходимости через react-router-dom.
 - **Вход:** `index.html` → `main.tsx` → `App.tsx`. В `main.tsx` вызывается `Telegram.WebApp.ready()`.
-- **Логика:** Экран приветствия (выбор «Водитель» / «Доставка/курьер») → запрос к API `getCurrentDraft()` / `createDraft(type)` → многошаговая форма в `RegistrationFlow.tsx`. Все запросы к бэкенду идут через `src/api.ts` на базовый URL из `import.meta.env.VITE_API_URL` (задаётся при сборке на Vercel).
+- **Логика:**
+  1. **Онбординг:** при первом входе вызывается `GET /api/agents/me`; если `linked: false` — показывается экран подключения по номеру Telegram (`OnboardingScreen`). Пользователь вводит телефон → `POST /api/agents/link` (initData в заголовке, телефон в body) → при успехе переход на главный экран.
+  2. **Главный экран (AgentHomeScreen):** приветствие «{Имя}, добро пожаловать в кабинет агента такси!», блок «Исполнители» — список из `GET /api/manager/drivers` (Yandex Fleet API). Если список пуст — «Исполнители не найдены». Ниже: добавление водителя по телефону, кнопки «Зарегистрировать водителя», «Регистрация доставка/курьер», «Кабинет менеджера».
+  3. **Регистрация:** выбор «Водитель» / «Доставка/курьер» → `getCurrentDraft()` / `createDraft(type)` → многошаговая форма в `RegistrationFlow.tsx`.
+- Все запросы к бэкенду идут через `src/api.ts` и `src/lib/api.ts` (axios с `x-telegram-init-data`) на базовый URL из `import.meta.env.VITE_API_URL`.
 - **Сборка:** `npm run build` в папке webapp → `vite build`, выход в `webapp/dist`.
 - **Деплой:** Отдельный проект Vercel (или корень с настройками в корневом `vercel.json`): buildCommand/outputDirectory указывают на webapp. В Production переменные задают `VITE_API_URL` = URL API-проекта.
 

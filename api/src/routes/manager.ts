@@ -27,7 +27,8 @@ async function requireManager(req: FastifyRequest, reply: FastifyReply) {
   if (!user?.id) {
     return reply.status(401).send({ error: "User not in initData", message: "В initData отсутствует user." });
   }
-  (req as FastifyRequest & { telegramUserId?: number }).telegramUserId = user.id;
+  (req as FastifyRequest & { telegramUserId?: number; telegramUser?: { first_name?: string; last_name?: string } }).telegramUserId = user.id;
+  (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser = user;
 
   let manager = await prisma.manager.findUnique({
     where: { telegramId: String(user.id) },
@@ -47,6 +48,20 @@ export async function managerRoutes(app: FastifyInstance) {
   }
 
   app.addHook("preHandler", requireManager);
+
+  /**
+   * GET /api/manager/me
+   * Текущий пользователь из initData (имя для приветствия).
+   */
+  app.get("/me", async (req, reply) => {
+    const user = (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser;
+    const telegramUserId = (req as FastifyRequest & { telegramUserId?: number }).telegramUserId;
+    return reply.send({
+      telegramUserId,
+      firstName: user?.first_name ?? null,
+      lastName: user?.last_name ?? null,
+    });
+  });
 
   /**
    * POST /api/manager/link-driver

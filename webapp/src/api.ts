@@ -25,6 +25,32 @@ const headers = (): HeadersInit => ({
   "X-Telegram-Init-Data": getInitData(),
 });
 
+export type AgentsMe = {
+  telegramUserId: number;
+  firstName: string | null;
+  lastName: string | null;
+  linked: boolean;
+};
+
+export async function getAgentsMe(): Promise<AgentsMe> {
+  const res = await fetch(`${API_URL}/api/agents/me`, { headers: headers() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function linkAgentByPhone(phone: string): Promise<{ agentId: string }> {
+  const res = await fetch(`${API_URL}/api/agents/link`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ phone }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string }).message ?? (data as { error?: string }).error ?? "Ошибка привязки");
+  }
+  return res.json();
+}
+
 export type Draft = {
   id: string;
   type: "driver" | "courier";
