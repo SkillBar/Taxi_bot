@@ -58,8 +58,8 @@ export async function managerRoutes(app: FastifyInstance) {
     const telegramUserId = (req as FastifyRequest & { telegramUserId?: number }).telegramUserId;
     return reply.send({
       telegramUserId,
-      firstName: user?.first_name ?? null,
-      lastName: user?.last_name ?? null,
+      firstName: user?.first_name != null ? user.first_name : null,
+      lastName: user?.last_name != null ? user.last_name : null,
     });
   });
 

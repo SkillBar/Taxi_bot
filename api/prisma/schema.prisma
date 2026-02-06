@@ -42,6 +42,18 @@ model DriverLink {
   @@index([managerId])
 }
 
+// OAuth 2.0 (Yandex ID): токены водителя для запросов к Fleet API от его имени
+model DriverYandexOAuth {
+  id           String   @id @default(cuid())
+  telegramUserId String @unique // Telegram user ID водителя
+  accessToken  String   // OAuth access_token (короткоживущий)
+  refreshToken String   // для обновления access_token
+  expiresAt    DateTime // когда истекает access_token
+  scope        String?  // выданные scopes
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model AgentTariff {
   id        String   @id @default(cuid())
   agentId   String

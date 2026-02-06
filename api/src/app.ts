@@ -12,6 +12,7 @@ import { draftRoutes } from "./routes/draft.js";
 import { executorTariffsRoutes } from "./routes/executor-tariffs.js";
 import { managerRoutes } from "./routes/manager.js";
 import { statsRoutes } from "./routes/stats.js";
+import { yandexOAuthRoutes } from "./routes/yandex-oauth.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -28,6 +29,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(executorTariffsRoutes, { prefix: "/api/executor-tariffs" });
   await app.register(managerRoutes, { prefix: "/api/manager" });
   await app.register(statsRoutes, { prefix: "/api/stats" });
+  await app.register(yandexOAuthRoutes, { prefix: "/api/yandex-oauth" });
 
   return app;
 }

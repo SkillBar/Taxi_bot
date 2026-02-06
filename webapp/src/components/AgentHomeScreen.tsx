@@ -10,7 +10,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api } from "../lib/api";
+import { api, getYandexOAuthAuthorizeUrl } from "../lib/api";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { DriverDetails } from "./DriverDetails";
 import type { Driver } from "./ManagerDashboard";
@@ -42,6 +42,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
+  const [yandexOAuthLoading, setYandexOAuthLoading] = useState(false);
+  const [yandexOAuthError, setYandexOAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     getAgentsMe()
@@ -64,6 +66,24 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   useEffect(() => {
     fetchDrivers();
   }, []);
+
+  const handleYandexOAuth = async () => {
+    setYandexOAuthError(null);
+    setYandexOAuthLoading(true);
+    try {
+      const { url } = await getYandexOAuthAuthorizeUrl();
+      if (typeof window.Telegram?.WebApp?.openLink === "function") {
+        window.Telegram.WebApp.openLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (e) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Не удалось получить ссылку";
+      setYandexOAuthError(msg);
+    } finally {
+      setYandexOAuthLoading(false);
+    }
+  };
 
   const handleLinkDriver = async () => {
     const phone = newPhone.trim();
@@ -165,6 +185,26 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Button size="l" stretched onClick={handleLinkDriver} loading={linking}>
                 Найти и привязать
               </Button>
+            </div>
+          </Section>
+
+          <Section header="Яндекс">
+            <div style={{ padding: "8px 16px 16px" }}>
+              <Button
+                size="l"
+                stretched
+                mode="secondary"
+                onClick={handleYandexOAuth}
+                loading={yandexOAuthLoading}
+                style={{ marginBottom: 8 }}
+              >
+                Подключить Яндекс Про / Войти через Яндекс
+              </Button>
+              {yandexOAuthError && (
+                <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginTop: 8 }}>
+                  {yandexOAuthError}
+                </p>
+              )}
             </div>
           </Section>
 

@@ -27,8 +27,8 @@ export async function agentRoutes(app: FastifyInstance) {
     });
     return reply.send({
       telegramUserId: user.id,
-      firstName: user.first_name ?? null,
-      lastName: user.last_name ?? null,
+      firstName: user.first_name != null ? user.first_name : null,
+      lastName: user.last_name != null ? user.last_name : null,
       linked: Boolean(agent?.isActive),
     });
   });

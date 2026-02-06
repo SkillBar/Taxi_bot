@@ -30,6 +30,24 @@ export default function App() {
       });
   }, []);
 
+  // После возврата с Yandex OAuth: очистить URL и показать сообщение
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauth = params.get("yandex_oauth");
+    if (oauth === "linked") {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("yandex_oauth");
+      u.searchParams.delete("error");
+      window.history.replaceState({}, "", u.pathname + u.search);
+      alert("Яндекс подключён");
+    } else if (params.get("error")) {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("yandex_oauth");
+      u.searchParams.delete("error");
+      window.history.replaceState({}, "", u.pathname + u.search);
+    }
+  }, []);
+
   const startRegistration = (selectedType: "driver" | "courier") => {
     setType(selectedType);
     setScreen("loading");

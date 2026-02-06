@@ -15,6 +15,10 @@ function getConfig() {
     yandexParkId: process.env.YANDEX_PARK_ID,
     yandexClientId: process.env.YANDEX_CLIENT_ID,
     yandexApiKey: process.env.YANDEX_API_KEY,
+    // OAuth 2.0 (Yandex ID) для водителя: логин через Яндекс, токен для Fleet API от его имени
+    yandexOAuthClientId: process.env.YANDEX_OAUTH_CLIENT_ID,
+    yandexOAuthClientSecret: process.env.YANDEX_OAUTH_CLIENT_SECRET,
+    yandexOAuthRedirectUri: process.env.YANDEX_OAUTH_REDIRECT_URI,
   };
 }
 

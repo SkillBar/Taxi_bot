@@ -28,3 +28,9 @@ api.interceptors.request.use((config) => {
   config.headers["x-telegram-init-data"] = getInitDataRaw();
   return config;
 });
+
+/** URL для редиректа водителя на страницу входа Яндекс (OAuth 2.0). */
+export async function getYandexOAuthAuthorizeUrl(): Promise<{ url: string }> {
+  const res = await api.get<{ url: string }>("/api/yandex-oauth/authorize-url");
+  return res.data;
+}
