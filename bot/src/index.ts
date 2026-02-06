@@ -65,8 +65,8 @@ bot.command("start", async (ctx) => {
   });
 });
 
+// Контакт приходит и из чата (после /start), и из Mini App (requestContact)
 bot.on("message:contact", async (ctx) => {
-  if (ctx.session.step !== "contact") return;
   const phone = ctx.message.contact?.phone_number
     ? normalizePhone(ctx.message.contact.phone_number)
     : "";
@@ -97,12 +97,18 @@ bot.on("message:contact", async (ctx) => {
     await ctx.reply(err.message || "Ошибка привязки аккаунта. Повторите /start");
     return;
   }
-  ctx.session.step = "email";
   ctx.session.agentId = data.agentId;
   ctx.session.phone = phone;
-  await ctx.reply("Введите вашу почту Яндекс для дальнейшей работы в системе.", {
-    reply_markup: { remove_keyboard: true },
-  });
+  const fromMiniApp = ctx.session.step !== "contact";
+  if (fromMiniApp) {
+    ctx.session.step = "menu";
+    await ctx.reply("Номер подтверждён. Вернитесь в приложение.");
+  } else {
+    ctx.session.step = "email";
+    await ctx.reply("Введите вашу почту Яндекс для дальнейшей работы в системе.", {
+      reply_markup: { remove_keyboard: true },
+    });
+  }
 });
 
 bot.on("message:text", async (ctx) => {

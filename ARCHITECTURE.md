@@ -55,7 +55,7 @@
 - **Стек:** Node.js, **Fastify 4**, **Prisma 5**, PostgreSQL (Neon). TypeScript, ESM (`"type": "module"`).
 - **Сборка:** `npm run build` → `mkdir -p public && rm -rf dist && tsc --outDir ./_dist`. Исходники в `api/src/`, артефакты в `api/_dist/`. Папка `_dist` — чтобы Vercel не сканировал её как отдельные serverless-функции.
 - **Точка входа на Vercel:** `api/index.js` (не из `_dist`). Это обычный JS-файл: `import app from "./_dist/index.js"`, `export default async function handler(req, res) { await app.ready(); app.server.emit("request", req, res); }`. Vercel вызывает эту функцию; Fastify обрабатывает запрос.
-- **Маршруты:** `/health`, `/api/agents/*` (в т.ч. `GET /me` — имя + linked, `POST /link` — привязка по телефону, initData в заголовке), `/api/drafts/*`, `/api/manager/*` (при настроенном Yandex Fleet: `GET /me`, `GET /drivers`, `POST /link-driver`), `/api/executor-tariffs/*`, `/api/stats/*`. CORS включён.
+- **Маршруты:** `/health`, `/api/agents/*` (в т.ч. `GET /me` — имя + linked, `POST /link` — привязка по телефону из Mini App, initData в заголовке; `POST /link-from-bot` — привязка по контакту из бота, заголовок `X-Api-Secret`, body `{ phone, telegramUserId }`), `/api/drafts/*`, `/api/manager/*` (при настроенном Yandex Fleet: `GET /me`, `GET /drivers`, `POST /link-driver`), `/api/executor-tariffs/*`, `/api/stats/*`. CORS включён.
 - **Данные:** Prisma, схема в `api/prisma/schema.prisma`. Для Neon: `DATABASE_URL` (pooled), `DIRECT_URL` (direct, для миграций). Опционально: внешняя проверка агента (`AGENT_CHECK_URL`).
 - **Деплой:** Отдельный проект Vercel, **Root Directory: `api`**. Build/Install команды задаются в Project Settings (не в `api/vercel.json`). Output Directory: `public` (пустая папка создаётся в build). В `api/vercel.json` только `rewrites`, без `builds`.
 
@@ -66,8 +66,8 @@
 - **Стек:** **React 18**, **Vite 5**, TypeScript. Одна страница (SPA), роутинг при необходимости через react-router-dom.
 - **Вход:** `index.html` → `main.tsx` → `App.tsx`. В `main.tsx` вызывается `Telegram.WebApp.ready()`.
 - **Логика:**
-  1. **Онбординг:** при первом входе вызывается `GET /api/agents/me`; если `linked: false` — показывается экран подключения по номеру Telegram (`OnboardingScreen`). Пользователь вводит телефон → `POST /api/agents/link` (initData в заголовке, телефон в body) → при успехе переход на главный экран.
-  2. **Главный экран (AgentHomeScreen):** приветствие «{Имя}, добро пожаловать в кабинет агента такси!», блок «Исполнители» — список из `GET /api/manager/drivers` (Yandex Fleet API). Если список пуст — «Исполнители не найдены». Ниже: добавление водителя по телефону, кнопки «Зарегистрировать водителя», «Регистрация доставка/курьер», «Кабинет менеджера».
+  1. **Онбординг:** при первом входе — `GET /api/agents/me`; если `linked: false` — экран «Добро пожаловать в кабинет агента такси!» + MainButton «Подтвердить номер». По нажатию вызывается `Telegram.WebApp.requestContact(callback)`. Пользователь делится контактом в нативном попапе → **бот** получает контакт (message:contact) и вызывает `POST /api/agents/link-from-bot` (X-Api-Secret + phone + telegramUserId). Mini App при `callback(true)` опрашивает `GET /api/agents/me` до `linked: true`, затем переход на главный экран.
+  2. **Главный экран (AgentHomeScreen):** приветствие «{Имя}, добро пожаловать в кабинет агента такси!», блок «Исполнители» — список из `GET /api/manager/drivers` (initData в заголовке; API по telegramId создаёт/находит Manager, возвращает DriverLink из БД + статусы из Yandex Fleet). Если список пуст — «Исполнители не найдены». Ниже: добавление водителя по телефону, кнопки «Зарегистрировать водителя», «Регистрация доставка/курьер», «Кабинет менеджера».
   3. **Регистрация:** выбор «Водитель» / «Доставка/курьер» → `getCurrentDraft()` / `createDraft(type)` → многошаговая форма в `RegistrationFlow.tsx`.
 - Все запросы к бэкенду идут через `src/api.ts` и `src/lib/api.ts` (axios с `x-telegram-init-data`) на базовый URL из `import.meta.env.VITE_API_URL`.
 - **Сборка:** `npm run build` в папке webapp → `vite build`, выход в `webapp/dist`.
@@ -86,9 +86,26 @@
 ## 5. Связи между частями
 
 - **Mini App ↔ API:** браузер в Telegram открывает WebApp (Vercel); WebApp дергает `VITE_API_URL` (тот же API на Vercel).
-- **Bot ↔ API:** бот может вызывать API по `API_URL` (например, линковка агента по телефону).
+- **Bot ↔ API:** бот вызывает API по `API_URL` (линковка агента по контакту: `POST /api/agents/link-from-bot` с `X-Api-Secret`).
 - **Bot ↔ Mini App:** бот открывает WebApp по `WEBAPP_URL` (в BotFather задан тот же URL).
 - **API ↔ БД:** Prisma, Neon PostgreSQL. Схема применяется через `prisma db push` (вручную или через GitHub Actions с секретами Neon).
+
+### 5.1. Схема: онбординг по контакту и список исполнителей
+
+1. **Запрос контакта в Mini App**  
+   Пользователь нажимает «Подтвердить номер» → вызывается `Telegram.WebApp.requestContact(callback)`. Номер в Mini App **не приходит** — его получает только бот.
+
+2. **Бот получает контакт**  
+   Telegram шлёт боту `message:contact` (номер телефона). Бот обрабатывает **любой** контакт (не только после /start): нормализует номер → `GET /api/agents/check?phone=...` → при `found: true` вызывает `POST /api/agents/link-from-bot` с заголовком `X-Api-Secret` и телом `{ phone, telegramUserId }`.
+
+3. **API привязывает агента**  
+   `link-from-bot` проверяет секрет, ищет/создаёт агента по номеру (в т.ч. через AGENT_CHECK_URL), обновляет `Agent.telegramUserId`. После этого `GET /api/agents/me` с initData возвращает `linked: true`.
+
+4. **Mini App узнаёт о привязке**  
+   После `requestContact(callback(true))` Mini App опрашивает `GET /api/agents/me` каждые 1.5 с; при `linked: true` переходит на главный экран.
+
+5. **Список исполнителей на фронте**  
+   Главный экран с заголовком `x-telegram-init-data` вызывает `GET /api/manager/drivers`. API по initData определяет пользователя, создаёт/находит Manager по `telegramId`, возвращает список DriverLink (из БД) с актуальными статусами/балансами из Yandex Fleet API. Фронт отображает список; при отсутствии водителей — «Исполнители не найдены». Добавление водителя — `POST /api/manager/link-driver` с `{ phone }`, поиск по Yandex Fleet и создание DriverLink.
 
 ---
 
