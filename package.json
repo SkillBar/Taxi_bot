@@ -2,6 +2,7 @@
   "name": "telegram-executor-registration",
   "private": true,
   "scripts": {
+    "check-keys": "node scripts/check-keys-before-deploy.mjs",
     "push": "sh scripts/push.sh",
     "deploy:push": "sh scripts/push.sh",
     "free-port": "sh scripts/free-port.sh",

@@ -28,13 +28,16 @@ export interface OnboardingScreenProps {
 
 type Step = "contact" | "fleet";
 
+// ID парка по умолчанию (подставляется автоматически; можно сменить при необходимости)
+const DEFAULT_PARK_ID = "28499fad6fb246c6827dcd3452ba1384";
+
 export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [step, setStep] = useState<Step>("contact");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [parkId, setParkId] = useState("");
+  const [parkId, setParkId] = useState(DEFAULT_PARK_ID);
 
   const handleRequestContact = useCallback(() => {
     const wa = window.Telegram?.WebApp;
@@ -72,10 +75,11 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
-      await connectFleet(key, park);
+      const res = await connectFleet(key, park);
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       mainBtn?.hide();
-      onLinked();
+      // Запрос прошёл — сразу открываем личный кабинет
+      if (res?.success !== false) onLinked();
     } catch (e: unknown) {
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       const err = e as { response?: { data?: { message?: string; error?: string } } };
@@ -151,27 +155,30 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               Подключите ваш парк Yandex Fleet
             </h1>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Зайдите в кабинет fleet.yandex.ru → Настройки → API → Создайте ключ. Вставьте API-ключ и ID парка ниже.
+              Введите только <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. ID парка подставлен автоматически.
             </p>
           </div>
 
           <div style={{ marginBottom: 16 }}>
             <Input
               header="API-ключ"
-              placeholder="Вставьте API-ключ"
+              placeholder="Вставьте API-ключ из кабинета Fleet"
               value={apiKey}
               onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
               disabled={loading}
             />
           </div>
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
             <Input
               header="ID парка"
-              placeholder="28499fad6fb246c6827dcd3452ba1384"
+              placeholder="ID парка"
               value={parkId}
               onChange={(e) => setParkId((e.target as HTMLInputElement).value)}
-              disabled={loading}
+              disabled={true}
             />
+            <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666)", margin: "4px 0 0" }}>
+              Подставлен для вашего парка; при необходимости можно сменить.
+            </p>
           </div>
           {error && (
             <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginBottom: 16 }}>
