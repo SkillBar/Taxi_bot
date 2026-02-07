@@ -143,14 +143,14 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         >
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             {contactSent && (
-              <p style={{ fontSize: 14, color: "var(--tg-theme-button-color)", margin: "0 0 12px", fontWeight: 600 }}>
+              <p style={{ fontSize: 14, color: "var(--tg-theme-button-color, #2481cc)", margin: "0 0 12px", fontWeight: 600 }}>
                 Номер подтверждён.
               </p>
             )}
-            <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color)" }}>
+            <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color, #000000)" }}>
               Подключите ваш парк Yandex Fleet
             </h1>
-            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", margin: 0 }}>
+            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
               Зайдите в кабинет fleet.yandex.ru → Настройки → API → Создайте ключ. Вставьте API-ключ и ID парка ниже.
             </p>
           </div>
@@ -180,7 +180,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           )}
 
           {loading && (
-            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", textAlign: "center" }}>
+            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", textAlign: "center" }}>
               Подключение…
             </p>
           )}
@@ -209,16 +209,16 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color)" }}>
+          <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color, #000000)" }}>
             Добро пожаловать в кабинет агента такси!
           </h1>
-          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", margin: 0 }}>
+          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
             Подтвердите номер телефона, с которого вы зарегистрированы как агент таксопарка.
           </p>
         </div>
 
         {loading && (
-          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", textAlign: "center", marginBottom: 16 }}>
+          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", textAlign: "center", marginBottom: 16 }}>
             Подтверждаем номер…
           </p>
         )}

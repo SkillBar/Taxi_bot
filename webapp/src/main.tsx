@@ -5,8 +5,12 @@ import App from "./App";
 import "./index.css";
 import "@telegram-apps/telegram-ui/dist/styles.css";
 
-// Инициализация по гайдлайнам Telegram Mini Apps (ready + expand + тема)
-initTelegramWebApp();
+// Инициализация по гайдлайнам Telegram Mini Apps (без подгрузки темы TG)
+try {
+  initTelegramWebApp();
+} catch {
+  // Вне Telegram или при ошибке SDK
+}
 
 class RootErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   state = { hasError: false };

@@ -1,8 +1,9 @@
 import { Component, useState, useEffect } from "react";
-import { getAgentsMe, getCurrentDraft, createDraft, type Draft } from "./api";
+import { getAgentsMe, getCurrentDraft, createDraft, type Draft, type AgentsMe } from "./api";
 import { getManagerMe } from "./lib/api";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { AgentHomeScreen } from "./components/AgentHomeScreen";
+import { SimpleHomeScreen } from "./components/SimpleHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
 
@@ -31,6 +32,35 @@ class HomeErrorBoundary extends Component<
   }
 }
 
+/** Ловит падения из-за telegram-ui / темы TG и предлагает открыть кабинет без них */
+class UIErrorBoundary extends Component<
+  { children: React.ReactNode; onUseSimpleUI: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 20, background: "var(--tg-theme-bg-color, #fff)", color: "var(--tg-theme-text-color, #000)" }}>
+          <p style={{ marginBottom: 12 }}>Не удалось загрузить интерфейс.</p>
+          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666)", marginBottom: 16 }}>
+            Откройте кабинет в упрощённом режиме.
+          </p>
+          <button type="button" className="primary" onClick={this.props.onUseSimpleUI}>
+            Открыть кабинет
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 type Screen =
   | "init"       // проверка linked
   | "onboarding" // подключение по номеру
@@ -44,17 +74,20 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("init");
   const [type, setType] = useState<"driver" | "courier">("driver");
   const [draft, setDraft] = useState<Draft | null | "new">(null);
+  const [useSimpleUI, setUseSimpleUI] = useState(false);
+  const [me, setMe] = useState<AgentsMe | null>(null);
 
   // При загрузке: если привязан как агент и подключён Fleet — главный экран, иначе онбординг. Меняем экран только пока init.
   useEffect(() => {
     getAgentsMe()
-      .then((me) => {
+      .then((agentMe) => {
+        setMe(agentMe);
         setScreen((prev) => {
           if (prev !== "init") return prev;
-          if (!me.linked) return "onboarding";
+          if (!agentMe.linked) return "onboarding";
           return prev;
         });
-        if (me.linked) {
+        if (agentMe.linked) {
           return getManagerMe().then((manager) => {
             setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
           });
@@ -145,50 +178,66 @@ export default function App() {
     setScreen("home");
   };
 
-  // Одна обёртка: всегда видимый фон и верхняя полоса, чтобы не было пустого экрана в WebView
+  // Обёртка: нативная тема Telegram (--tg-theme-*)
   const wrapperStyle: React.CSSProperties = {
     minHeight: "100vh",
-    background: "#ffffff",
-    color: "#000000",
+    background: "var(--tg-theme-bg-color, #ffffff)",
+    color: "var(--tg-theme-text-color, #000000)",
   };
   const topBarStyle: React.CSSProperties = {
     padding: "12px 16px",
-    background: "#ffffff",
-    color: "#000000",
-    borderBottom: "1px solid #e0e0e0",
+    background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+    color: "var(--tg-theme-text-color, #000000)",
+    borderBottom: "1px solid var(--tg-theme-hint-color, #e0e0e0)",
     fontSize: 16,
     fontWeight: 600,
   };
 
+  const handleUseSimpleUI = () => {
+    setUseSimpleUI(true);
+    setScreen("home");
+  };
+
   return (
-    <div style={wrapperStyle}>
+    <div data-app-root style={wrapperStyle}>
       <div style={topBarStyle}>Кабинет агента такси</div>
 
-      {screen === "manager" && (
-        <>
-          <div style={{ padding: 12 }}>
-            <button type="button" className="secondary" onClick={() => setScreen("home")} style={{ marginBottom: 8 }}>
-              ← Назад
-            </button>
-          </div>
-          <ManagerDashboard />
-        </>
-      )}
+      <UIErrorBoundary onUseSimpleUI={handleUseSimpleUI}>
+        {screen === "manager" && (
+          <>
+            <div style={{ padding: 12 }}>
+              <button type="button" className="secondary" onClick={() => setScreen("home")} style={{ marginBottom: 8 }}>
+                ← Назад
+              </button>
+            </div>
+            <ManagerDashboard />
+          </>
+        )}
 
-      {screen === "onboarding" && <OnboardingScreen onLinked={() => setScreen("home")} />}
+        {screen === "onboarding" && !useSimpleUI && <OnboardingScreen onLinked={() => setScreen("home")} />}
 
-      {screen === "home" && (
-        <HomeErrorBoundary onBack={() => setScreen("init")}>
-          <AgentHomeScreen
-            onRegisterDriver={() => startRegistration("driver")}
-            onRegisterCourier={() => startRegistration("courier")}
-            onOpenManager={() => setScreen("manager")}
-          />
-        </HomeErrorBoundary>
-      )}
+        {screen === "home" &&
+          (useSimpleUI ? (
+            <SimpleHomeScreen
+              user={me}
+              onRegisterDriver={() => startRegistration("driver")}
+              onRegisterCourier={() => startRegistration("courier")}
+              onOpenManager={() => setScreen("manager")}
+            />
+          ) : (
+            <HomeErrorBoundary onBack={() => setScreen("init")}>
+              <AgentHomeScreen
+                onRegisterDriver={() => startRegistration("driver")}
+                onRegisterCourier={() => startRegistration("courier")}
+                onOpenManager={() => setScreen("manager")}
+              />
+            </HomeErrorBoundary>
+          ))}
+
+      </UIErrorBoundary>
 
       {(screen === "init" || screen === "loading") && (
-        <div style={{ padding: 20, textAlign: "center", background: "#ffffff", color: "#000000" }}>
+        <div style={{ padding: 20, textAlign: "center", background: "var(--tg-theme-bg-color, #fff)", color: "var(--tg-theme-text-color, #000)" }}>
           Загрузка…
         </div>
       )}

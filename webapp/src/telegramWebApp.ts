@@ -2,6 +2,7 @@
  * Инициализация по гайдлайнам Telegram Mini Apps:
  * https://core.telegram.org/bots/webapps
  * Вызывать при загрузке приложения.
+ * Используем нативную тему Telegram (светлая/тёмная — как у пользователя).
  */
 
 type TelegramWA = {
@@ -14,17 +15,22 @@ type TelegramWA = {
 };
 
 export function initTelegramWebApp(): void {
-  const wa = (typeof window !== "undefined" && (window as unknown as { Telegram?: { WebApp?: TelegramWA } }).Telegram?.WebApp) as TelegramWA | undefined;
-  if (!wa) return;
+  try {
+    const wa = (typeof window !== "undefined" && (window as unknown as { Telegram?: { WebApp?: TelegramWA } }).Telegram?.WebApp) as TelegramWA | undefined;
+    if (!wa) return;
 
-  wa.ready();
-  wa.expand?.();
+    wa.ready();
+    wa.expand?.();
 
-  const bg = wa.themeParams?.bg_color;
-  if (bg) {
-    wa.setHeaderColor?.(bg);
-    wa.setBackgroundColor?.(bg);
+    // Нативная тема Telegram: подставляем цвета из темы пользователя
+    const bg = wa.themeParams?.bg_color;
+    if (bg) {
+      wa.setHeaderColor?.(bg);
+      wa.setBackgroundColor?.(bg);
+    }
+
+    wa.enableVerticalSwipes?.();
+  } catch {
+    // Вне Telegram или при ошибке SDK — просто не падаем
   }
-
-  wa.enableVerticalSwipes?.();
 }

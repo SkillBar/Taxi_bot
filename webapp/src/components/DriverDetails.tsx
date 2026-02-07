@@ -22,12 +22,16 @@ const isWorking = (status?: string) =>
 
 export function DriverDetails({ driver, onBack }: DriverDetailsProps) {
   useEffect(() => {
-    if (backButton.show?.isAvailable?.()) backButton.show();
-    const off = backButton.onClick?.isAvailable?.() ? backButton.onClick(onBack) : () => {};
-    return () => {
-      if (typeof off === "function") off();
-      if (backButton.hide?.isAvailable?.()) backButton.hide();
-    };
+    try {
+      if (backButton?.show?.isAvailable?.()) backButton.show();
+      const off = backButton?.onClick?.isAvailable?.() ? backButton.onClick(onBack) : () => {};
+      return () => {
+        if (typeof off === "function") off();
+        if (backButton?.hide?.isAvailable?.()) backButton.hide();
+      };
+    } catch {
+      return () => {};
+    }
   }, [onBack]);
 
   const statusLabel = isWorking(driver.workStatus) ? "На линии" : "Офлайн";

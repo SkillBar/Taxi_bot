@@ -130,13 +130,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       <main
         style={{
           minHeight: "60vh",
-          background: "#ffffff",
-          color: "#000000",
+          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+          color: "var(--tg-theme-text-color, #000000)",
           paddingBottom: 24,
         }}
       >
-        <div style={{ padding: "12px 16px", background: "#ffffff", color: "#000000" }}>
-          <p style={{ fontSize: 14, color: "#333333", margin: 0 }}>
+        <div style={{ padding: "12px 16px", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", color: "var(--tg-theme-text-color, #000)" }}>
+          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #333)", margin: 0 }}>
             {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
           </p>
         </div>
@@ -163,7 +163,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                       : undefined
                   }
                   after={
-                    <span style={{ fontSize: 12, color: "var(--tg-theme-hint-color)" }}>
+                    <span style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666666)" }}>
                       {statusLabel(driver.workStatus)}
                     </span>
                   }

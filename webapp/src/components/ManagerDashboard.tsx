@@ -123,7 +123,7 @@ export function ManagerDashboard() {
                 driver.balance != null ? `Баланс: ${driver.balance} ₽` : undefined
               }
               after={
-                <span style={{ fontSize: 12, color: "var(--tg-theme-hint-color)" }}>
+                <span style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666666)" }}>
                   {isWorking(driver.workStatus) ? "На линии" : "Офлайн"}
                 </span>
               }
