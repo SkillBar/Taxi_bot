@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
-import { Input, Button } from "@telegram-apps/telegram-ui";
+import { Input } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
 import { getManagerMe, connectFleet } from "../lib/api";
 
@@ -56,7 +56,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     });
   }, []);
 
-  const handleConnectFleet = async () => {
+  const handleConnectFleet = useCallback(async () => {
     const key = apiKey.trim();
     const park = parkId.trim();
     if (!key) {
@@ -69,16 +69,21 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     }
     setError(null);
     setLoading(true);
+    const mainBtn = window.Telegram?.WebApp?.MainButton;
+    if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
       await connectFleet(key, park);
+      if (mainBtn?.showProgress) mainBtn.showProgress(false);
+      mainBtn?.hide();
       onLinked();
     } catch (e: unknown) {
+      if (mainBtn?.showProgress) mainBtn.showProgress(false);
       const err = e as { response?: { data?: { message?: string; error?: string } } };
       setError(err.response?.data?.message ?? err.response?.data?.error ?? "Ошибка подключения. Проверьте API-ключ и ID парка.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiKey, parkId, onLinked]);
 
   useEffect(() => {
     getAgentsMe()
@@ -107,6 +112,20 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     };
   }, [step, handleRequestContact]);
 
+  // MainButton на шаге fleet: стандартная кнопка внизу
+  useEffect(() => {
+    if (step !== "fleet") return;
+    const mainBtn = window.Telegram?.WebApp?.MainButton;
+    if (!mainBtn) return;
+    mainBtn.setText("Подключить");
+    mainBtn.show();
+    mainBtn.onClick(handleConnectFleet);
+    return () => {
+      mainBtn.offClick?.(handleConnectFleet);
+      mainBtn.hide();
+    };
+  }, [step, handleConnectFleet]);
+
   // ——— Шаг 2: подключение Yandex Fleet ———
   if (step === "fleet") {
     return (
@@ -116,6 +135,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             minHeight: "100vh",
             background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
             padding: 24,
+            paddingBottom: 80,
             display: "flex",
             flexDirection: "column",
             alignItems: "stretch",
@@ -160,9 +180,17 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             </p>
           )}
 
-          <Button size="l" stretched onClick={handleConnectFleet} loading={loading}>
-            Подключить
-          </Button>
+          {loading && (
+            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color)", textAlign: "center" }}>
+              Подключение…
+            </p>
+          )}
+
+          {!window.Telegram?.WebApp?.MainButton && (
+            <button type="button" className="primary" onClick={handleConnectFleet} disabled={loading} style={{ marginTop: 16 }}>
+              Подключить
+            </button>
+          )}
         </main>
       </AppRoot>
     );

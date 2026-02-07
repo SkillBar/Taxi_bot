@@ -37,6 +37,11 @@ export default function App() {
       });
   }, []);
 
+  // Скрыть MainButton на главном экране (на случай перехода с онбординга)
+  useEffect(() => {
+    if (screen === "home") window.Telegram?.WebApp?.MainButton?.hide();
+  }, [screen]);
+
   // После возврата с Yandex OAuth: очистить URL и показать сообщение
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -139,11 +144,13 @@ export default function App() {
   // —— Главный экран: приветствие + исполнители + кнопки ———
   if (screen === "home") {
     return (
-      <AgentHomeScreen
-        onRegisterDriver={() => startRegistration("driver")}
-        onRegisterCourier={() => startRegistration("courier")}
-        onOpenManager={() => setScreen("manager")}
-      />
+      <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
+        <AgentHomeScreen
+          onRegisterDriver={() => startRegistration("driver")}
+          onRegisterCourier={() => startRegistration("courier")}
+          onOpenManager={() => setScreen("manager")}
+        />
+      </div>
     );
   }
 
