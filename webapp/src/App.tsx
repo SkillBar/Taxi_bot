@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getAgentsMe, getCurrentDraft, createDraft, type Draft } from "./api";
+import { getManagerMe } from "./lib/api";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { AgentHomeScreen } from "./components/AgentHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
@@ -19,11 +20,17 @@ export default function App() {
   const [type, setType] = useState<"driver" | "courier">("driver");
   const [draft, setDraft] = useState<Draft | null | "new">(null);
 
-  // При загрузке: если пользователь уже привязан — показываем главный экран, иначе онбординг
+  // При загрузке: если привязан как агент и подключён Fleet — главный экран, иначе онбординг
   useEffect(() => {
     getAgentsMe()
       .then((me) => {
-        setScreen(me.linked ? "home" : "onboarding");
+        if (!me.linked) {
+          setScreen("onboarding");
+          return;
+        }
+        return getManagerMe().then((manager) => {
+          setScreen(manager.hasFleet ? "home" : "onboarding");
+        });
       })
       .catch(() => {
         setScreen("onboarding");

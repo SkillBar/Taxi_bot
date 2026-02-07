@@ -23,10 +23,13 @@ model Agent {
 }
 
 model Manager {
-  id         String   @id @default(cuid())
-  telegramId String?  @unique // Telegram user ID менеджера
-  name       String?
-  drivers    DriverLink[]
+  id                String   @id @default(cuid())
+  telegramId        String?  @unique // Telegram user ID менеджера
+  name              String?
+  yandexApiKey      String?  // API-ключ Fleet, введённый агентом
+  yandexParkId      String?  // ID парка
+  yandexClientId    String?  // taxi/park/{parkId}
+  drivers           DriverLink[]
 }
 
 model DriverLink {

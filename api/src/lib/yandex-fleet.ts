@@ -16,22 +16,51 @@ export type YandexDriverProfile = {
   workStatus?: string;
 };
 
+/** Учётные данные менеджера (из БД) или глобальный config */
+export type FleetCredentials = {
+  apiKey: string;
+  parkId: string;
+  clientId: string;
+};
+
+function headersFrom(creds: FleetCredentials): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-Client-ID": creds.clientId,
+    "X-API-Key": creds.apiKey,
+    "X-Park-ID": creds.parkId,
+  };
+}
+
 function headers(): Record<string, string> {
   const clientId = config.yandexClientId;
   const apiKey = config.yandexApiKey;
   const parkId = config.yandexParkId;
-  if (!clientId || !apiKey) throw new Error("YANDEX_CLIENT_ID and YANDEX_API_KEY required");
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Client-ID": clientId,
-    "X-API-Key": apiKey,
-  };
-  if (parkId) h["X-Park-ID"] = parkId;
-  return h;
+  if (!clientId || !apiKey || !parkId) throw new Error("YANDEX_CLIENT_ID, YANDEX_API_KEY and YANDEX_PARK_ID required");
+  return headersFrom({ apiKey, parkId, clientId });
 }
 
 export function isConfigured(): boolean {
   return Boolean(config.yandexParkId && config.yandexClientId && config.yandexApiKey);
+}
+
+/**
+ * Проверка API-ключа: тестовый запрос к Fleet. clientId = taxi/park/{parkId}.
+ */
+export async function validateFleetCredentials(apiKey: string, parkId: string): Promise<{ ok: boolean; message?: string }> {
+  const clientId = `taxi/park/${parkId}`;
+  const body = {
+    query: { park: { id: parkId } },
+    limit: 1,
+  };
+  const res = await fetch(DRIVER_PROFILES_LIST, {
+    method: "POST",
+    headers: headersFrom({ apiKey, parkId, clientId }),
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return { ok: true };
+  const text = await res.text();
+  return { ok: false, message: `Fleet API ${res.status}: ${text.slice(0, 200)}` };
 }
 
 /**
@@ -46,11 +75,12 @@ export function normalizePhoneForYandex(raw: string): string {
 
 /**
  * Поиск водителя в Яндексе по номеру телефона (query.text).
- * Возвращает первый найденный профиль или null.
+ * creds — учётные данные менеджера; если не переданы, используется глобальный config.
  */
-export async function findDriverByPhone(phone: string): Promise<YandexDriverProfile | null> {
-  if (!isConfigured()) return null;
-  const parkId = config.yandexParkId!;
+export async function findDriverByPhone(phone: string, creds?: FleetCredentials | null): Promise<YandexDriverProfile | null> {
+  const useCreds = creds != null ? creds : (isConfigured() ? { apiKey: config.yandexApiKey!, parkId: config.yandexParkId!, clientId: config.yandexClientId! } : null);
+  if (!useCreds) return null;
+  const parkId = useCreds.parkId;
   const normalized = normalizePhoneForYandex(phone);
 
   const body = {
@@ -68,7 +98,7 @@ export async function findDriverByPhone(phone: string): Promise<YandexDriverProf
 
   const res = await fetch(DRIVER_PROFILES_LIST, {
     method: "POST",
-    headers: headers(),
+    headers: headersFrom(useCreds),
     body: JSON.stringify(body),
   });
 
@@ -101,14 +131,17 @@ export async function findDriverByPhone(phone: string): Promise<YandexDriverProf
 
 /**
  * Получение статусов/балансов по списку driver_profile_id (батч до 50–100 ID).
+ * creds — учётные данные менеджера; если не переданы, используется глобальный config.
  */
 export async function getDriversStatus(
-  driverIds: string[]
+  driverIds: string[],
+  creds?: FleetCredentials | null
 ): Promise<Map<string, Omit<YandexDriverProfile, "yandexId">>> {
   const result = new Map<string, Omit<YandexDriverProfile, "yandexId">>();
-  if (!isConfigured() || driverIds.length === 0) return result;
+  const useCreds = creds != null ? creds : (isConfigured() ? { apiKey: config.yandexApiKey!, parkId: config.yandexParkId!, clientId: config.yandexClientId! } : null);
+  if (!useCreds || driverIds.length === 0) return result;
 
-  const parkId = config.yandexParkId!;
+  const parkId = useCreds.parkId;
   const body = {
     query: {
       park: {
@@ -125,7 +158,7 @@ export async function getDriversStatus(
 
   const res = await fetch(DRIVER_PROFILES_LIST, {
     method: "POST",
-    headers: headers(),
+    headers: headersFrom(useCreds),
     body: JSON.stringify(body),
   });
 

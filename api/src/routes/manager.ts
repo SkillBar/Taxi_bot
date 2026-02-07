@@ -6,7 +6,8 @@ import {
   findDriverByPhone,
   getDriversStatus,
   normalizePhoneForYandex,
-  isConfigured as isYandexFleetConfigured,
+  validateFleetCredentials,
+  type FleetCredentials,
 } from "../lib/yandex-fleet.js";
 
 async function requireManager(req: FastifyRequest, reply: FastifyReply) {
@@ -41,26 +42,63 @@ async function requireManager(req: FastifyRequest, reply: FastifyReply) {
   (req as FastifyRequest & { managerId?: string }).managerId = manager.id;
 }
 
-export async function managerRoutes(app: FastifyInstance) {
-  if (!isYandexFleetConfigured()) {
-    app.log.warn("Yandex Fleet API not configured (YANDEX_PARK_ID, YANDEX_CLIENT_ID, YANDEX_API_KEY); /api/manager/* disabled");
-    return;
-  }
+function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId: string | null; yandexClientId: string | null }): FleetCredentials | null {
+  if (!manager.yandexApiKey || !manager.yandexParkId || !manager.yandexClientId) return null;
+  return { apiKey: manager.yandexApiKey, parkId: manager.yandexParkId, clientId: manager.yandexClientId };
+}
 
+export async function managerRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireManager);
 
   /**
    * GET /api/manager/me
-   * Текущий пользователь из initData (имя для приветствия).
+   * Текущий пользователь из initData (имя + признак подключения Fleet).
    */
   app.get("/me", async (req, reply) => {
     const user = (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser;
     const telegramUserId = (req as FastifyRequest & { telegramUserId?: number }).telegramUserId;
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    let hasFleet = false;
+    if (managerId) {
+      const manager = await prisma.manager.findUnique({ where: { id: managerId } });
+      hasFleet = Boolean(manager?.yandexApiKey);
+    }
     return reply.send({
       telegramUserId,
       firstName: user?.first_name != null ? user.first_name : null,
       lastName: user?.last_name != null ? user.last_name : null,
+      hasFleet,
     });
+  });
+
+  /**
+   * POST /api/manager/connect-fleet
+   * Body: { apiKey: string, parkId: string }
+   * Проверяет ключ тестовым запросом к Fleet, сохраняет в Manager.
+   */
+  app.post<{ Body: { apiKey?: string; parkId?: string } }>("/connect-fleet", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+
+    const apiKey = (req.body as { apiKey?: string })?.apiKey?.trim();
+    const parkId = (req.body as { parkId?: string })?.parkId?.trim();
+    if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
+    if (!parkId) return reply.status(400).send({ error: "parkId required", message: "Введите ID парка" });
+
+    const validation = await validateFleetCredentials(apiKey, parkId);
+    if (!validation.ok) {
+      return reply.status(400).send({
+        error: "Invalid Fleet credentials",
+        message: validation.message || "Неверный API-ключ или ID парка. Проверьте данные в кабинете fleet.yandex.ru",
+      });
+    }
+
+    const clientId = `taxi/park/${parkId}`;
+    await prisma.manager.update({
+      where: { id: managerId },
+      data: { yandexApiKey: apiKey, yandexParkId: parkId, yandexClientId: clientId },
+    });
+    return reply.send({ success: true, message: "Парк успешно подключён!" });
   });
 
   /**
@@ -72,13 +110,19 @@ export async function managerRoutes(app: FastifyInstance) {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
+    const manager = await prisma.manager.findUnique({ where: { id: managerId } });
+    const creds = manager ? managerFleetCreds(manager) : null;
+    if (!creds) {
+      return reply.status(400).send({ error: "Fleet not connected", message: "Сначала подключите Yandex Fleet (API-ключ и ID парка)." });
+    }
+
     const phone = (req.body as { phone?: string })?.phone;
     if (!phone || typeof phone !== "string") return reply.status(400).send({ error: "phone required" });
 
     const normalized = normalizePhoneForYandex(phone);
     let driver;
     try {
-      driver = await findDriverByPhone(normalized);
+      driver = await findDriverByPhone(normalized, creds);
     } catch (e) {
       app.log.error(e);
       return reply.status(502).send({ error: "Yandex Fleet API error", message: (e as Error).message });
@@ -125,6 +169,9 @@ export async function managerRoutes(app: FastifyInstance) {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
+    const manager = await prisma.manager.findUnique({ where: { id: managerId } });
+    const creds = manager ? managerFleetCreds(manager) : null;
+
     const links = await prisma.driverLink.findMany({
       where: { managerId },
       orderBy: { createdAt: "desc" },
@@ -134,10 +181,14 @@ export async function managerRoutes(app: FastifyInstance) {
       return reply.send({ drivers: [] });
     }
 
+    if (!creds) {
+      return reply.send({ drivers: links.map((l) => ({ id: l.id, yandexDriverId: l.yandexDriverId, phone: l.driverPhone, name: l.cachedName, balance: undefined, workStatus: undefined })) });
+    }
+
     const ids = links.map((l) => l.yandexDriverId);
     let statusMap;
     try {
-      statusMap = await getDriversStatus(ids);
+      statusMap = await getDriversStatus(ids, creds);
     } catch (e) {
       app.log.error(e);
       return reply.status(502).send({ error: "Yandex Fleet API error", message: (e as Error).message });
