@@ -34,8 +34,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [parkId, setParkId] = useState("");
-  const [clientId, setClientId] = useState("");
 
   const handleRequestContact = useCallback(() => {
     const wa = window.Telegram?.WebApp;
@@ -68,7 +66,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
-      const res = await connectFleet(key, parkId.trim(), clientId.trim() || undefined);
+      const res = await connectFleet(key, "", undefined);
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       mainBtn?.hide();
       // Запрос прошёл — сразу открываем личный кабинет
@@ -86,14 +84,14 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         };
       };
       const data = err.response?.data;
-      const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ и ID парка.";
+      const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ.";
       const details = data?.details;
       const display = details ? `${msg}\n\nПодробности: ${details}` : msg;
       setError(display);
     } finally {
       setLoading(false);
     }
-  }, [apiKey, parkId, clientId, onLinked]);
+  }, [apiKey, onLinked]);
 
   useEffect(() => {
     getAgentsMe()
@@ -161,7 +159,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               Подключите ваш парк Yandex Fleet
             </h1>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Введите <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. ID парка определится по ключу или укажите вручную.
+              Введите <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. Парк определится по ключу автоматически.
             </p>
           </div>
 
@@ -171,24 +169,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               placeholder="Вставьте API-ключ из кабинета Fleet"
               value={apiKey}
               onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
-              disabled={loading}
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <Input
-              header="ID парка (необязательно)"
-              placeholder="Определится по ключу или введите вручную"
-              value={parkId}
-              onChange={(e) => setParkId((e.target as HTMLInputElement).value)}
-              disabled={loading}
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <Input
-              header="Client ID (если отличается от дефолтного)"
-              placeholder="Оставьте пустым, если не знаете"
-              value={clientId}
-              onChange={(e) => setClientId((e.target as HTMLInputElement).value)}
               disabled={loading}
             />
           </div>
