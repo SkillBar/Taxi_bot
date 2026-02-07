@@ -7,6 +7,8 @@ import {
   getDriversStatus,
   normalizePhoneForYandex,
   validateFleetCredentials,
+  tryDiscoverParkId,
+  fleetStatusToRussian,
   type FleetCredentials,
 } from "../lib/yandex-fleet.js";
 
@@ -82,10 +84,18 @@ export async function managerRoutes(app: FastifyInstance) {
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
     const apiKey = (req.body as { apiKey?: string })?.apiKey?.trim();
-    const parkId = (req.body as { parkId?: string })?.parkId?.trim();
+    let parkId = (req.body as { parkId?: string })?.parkId?.trim();
     const clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
-    if (!parkId) return reply.status(400).send({ error: "parkId required", message: "Введите ID парка" });
+    if (!parkId) {
+      parkId = (await tryDiscoverParkId(apiKey)) ?? "";
+      if (!parkId) {
+        return reply.status(400).send({
+          error: "parkId required",
+          message: "Введите ID парка или проверьте API-ключ — не удалось определить парк по ключу.",
+        });
+      }
+    }
 
     const clientId = clientIdRaw && clientIdRaw.length > 0 ? clientIdRaw : `taxi/park/${parkId}`;
     app.log.info({
@@ -104,11 +114,13 @@ export async function managerRoutes(app: FastifyInstance) {
         fleetStatus: validation.statusCode,
         message: validation.message?.slice(0, 200),
       });
+      const humanMessage = fleetStatusToRussian(validation.statusCode);
       return reply.status(400).send({
         error: "Invalid Fleet credentials",
         code: "FLEET_VALIDATION_FAILED",
         fleetStatus: validation.statusCode,
-        message: validation.message || "Неверный API-ключ или ID парка. Проверьте данные в кабинете fleet.yandex.ru",
+        message: humanMessage,
+        details: validation.message,
       });
     }
     await prisma.manager.update({

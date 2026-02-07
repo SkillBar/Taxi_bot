@@ -7,6 +7,53 @@ import { config } from "../config.js";
 
 const FLEET_API_BASE = "https://fleet-api.taxi.yandex.net";
 const DRIVER_PROFILES_LIST = `${FLEET_API_BASE}/v1/parks/driver-profiles/list`;
+const PARKS_LIST = `${FLEET_API_BASE}/v1/parks/list`;
+const PARKS_INFO = `${FLEET_API_BASE}/v1/parks/info`;
+
+const FLEET_FETCH_RETRIES = 3;
+const FLEET_RETRY_DELAY_MS = 1500;
+
+/** Повтор запроса при 429 или сетевой ошибке. */
+async function fetchWithRetry(
+  fn: () => Promise<Response>,
+  opts: { retries?: number; delayMs?: number } = {}
+): Promise<Response> {
+  const { retries = FLEET_FETCH_RETRIES, delayMs = FLEET_RETRY_DELAY_MS } = opts;
+  let lastRes: Response | null = null;
+  let lastErr: unknown = null;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fn();
+      lastRes = res;
+      if (res.status !== 429) return res;
+      if (i < retries - 1) await new Promise((r) => setTimeout(r, delayMs));
+    } catch (e) {
+      lastErr = e;
+      if (i < retries - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  if (lastRes != null) return lastRes;
+  throw lastErr ?? new Error("Fleet request failed");
+}
+
+/** Человекочитаемое сообщение по коду ответа Fleet API. */
+export function fleetStatusToRussian(statusCode: number): string {
+  switch (statusCode) {
+    case 401:
+    case 403:
+      return "Неверный API-ключ или доступ запрещён. Проверьте ключ в кабинете fleet.yandex.ru.";
+    case 404:
+      return "Парк не найден. Проверьте ID парка.";
+    case 429:
+      return "Слишком много запросов к Fleet. Подождите минуту и попробуйте снова.";
+    case 500:
+    case 502:
+    case 503:
+      return "Ошибка на стороне Yandex. Попробуйте позже.";
+    default:
+      return `Ошибка Fleet API (HTTP ${statusCode}). Проверьте ключ и ID парка.`;
+  }
+}
 
 export type YandexDriverProfile = {
   yandexId: string;
@@ -46,7 +93,51 @@ export function isConfigured(): boolean {
 }
 
 /**
- * Проверка API-ключа: тестовый запрос к Fleet.
+ * Попытка получить ID парка по одному API-ключу.
+ * Пробует /v1/parks/info (один парк), затем /v1/parks/list (массив парков).
+ * Если оба недоступны или ключ без прав — возвращает null.
+ */
+export async function tryDiscoverParkId(apiKey: string): Promise<string | null> {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": apiKey,
+    "X-Client-ID": "taxi",
+  };
+
+  // 1) /v1/parks/info — часто возвращает один парк по ключу
+  try {
+    const resInfo = await fetch(PARKS_INFO, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    if (resInfo.ok) {
+      const data = (await resInfo.json()) as { park?: { id?: string }; parks?: Array<{ id?: string }> };
+      const id = data?.park?.id ?? data?.parks?.[0]?.id;
+      if (typeof id === "string" && id.length > 0) return id;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // 2) /v1/parks/list — список парков
+  try {
+    const res = await fetch(PARKS_LIST, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { parks?: Array<{ id?: string }> };
+    const id = data?.parks?.[0]?.id;
+    return typeof id === "string" && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Проверка API-ключа: тестовый запрос к Fleet (с retry при 429).
  * clientId — из кабинета (Настройки → API); если не передан, берётся taxi/park/{parkId}.
  */
 export type ValidateFleetResult = { ok: true } | { ok: false; message: string; statusCode: number };
@@ -58,11 +149,13 @@ export async function validateFleetCredentials(apiKey: string, parkId: string, c
     fields: { driver_profile: ["id"], account: ["balance"] },
     limit: 1,
   };
-  const res = await fetch(DRIVER_PROFILES_LIST, {
-    method: "POST",
-    headers: headersFrom({ apiKey, parkId, clientId: resolvedClientId }),
-    body: JSON.stringify(body),
-  });
+  const res = await fetchWithRetry(() =>
+    fetch(DRIVER_PROFILES_LIST, {
+      method: "POST",
+      headers: headersFrom({ apiKey, parkId, clientId: resolvedClientId }),
+      body: JSON.stringify(body),
+    })
+  );
   if (res.ok) return { ok: true };
   const text = await res.text();
   return { ok: false, message: `Fleet API ${res.status}: ${text.slice(0, 300)}`, statusCode: res.status };

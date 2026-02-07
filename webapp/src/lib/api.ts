@@ -35,9 +35,15 @@ export async function getManagerMe(): Promise<{ hasFleet: boolean }> {
   return res.data;
 }
 
-/** Подключить Yandex Fleet (API-ключ + ID парка). */
-export async function connectFleet(apiKey: string, parkId: string): Promise<{ success: boolean }> {
-  const res = await api.post<{ success: boolean }>("/api/manager/connect-fleet", { apiKey, parkId });
+/** Подключить Yandex Fleet. parkId опционален — при пустом бэкенд попытается определить по ключу. clientId — если в кабинете указан отличный от taxi/park/{parkId}. */
+export async function connectFleet(
+  apiKey: string,
+  parkId: string,
+  clientId?: string
+): Promise<{ success: boolean }> {
+  const body: { apiKey: string; parkId: string; clientId?: string } = { apiKey, parkId: parkId || "" };
+  if (clientId?.trim()) body.clientId = clientId.trim();
+  const res = await api.post<{ success: boolean }>("/api/manager/connect-fleet", body);
   return res.data;
 }
 
