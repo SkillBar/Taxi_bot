@@ -23,12 +23,13 @@ export type FleetCredentials = {
   clientId: string;
 };
 
-/** По документации Fleet API: только X-Client-ID и X-API-Key. Park ID передаётся в теле в query.park.id. */
+/** Fleet API: X-Client-ID, X-API-Key, X-Park-Id (парк в заголовке часто обязателен). */
 function headersFrom(creds: FleetCredentials): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "X-Client-ID": creds.clientId,
     "X-API-Key": creds.apiKey,
+    "X-Park-Id": creds.parkId,
   };
 }
 
@@ -48,10 +49,13 @@ export function isConfigured(): boolean {
  * Проверка API-ключа: тестовый запрос к Fleet.
  * clientId — из кабинета (Настройки → API); если не передан, берётся taxi/park/{parkId}.
  */
-export async function validateFleetCredentials(apiKey: string, parkId: string, clientId?: string): Promise<{ ok: boolean; message?: string }> {
+export type ValidateFleetResult = { ok: true } | { ok: false; message: string; statusCode: number };
+
+export async function validateFleetCredentials(apiKey: string, parkId: string, clientId?: string): Promise<ValidateFleetResult> {
   const resolvedClientId = (clientId && clientId.trim()) ? clientId.trim() : `taxi/park/${parkId}`;
   const body = {
     query: { park: { id: parkId } },
+    fields: { driver_profile: ["id"], account: ["balance"] },
     limit: 1,
   };
   const res = await fetch(DRIVER_PROFILES_LIST, {
@@ -61,7 +65,7 @@ export async function validateFleetCredentials(apiKey: string, parkId: string, c
   });
   if (res.ok) return { ok: true };
   const text = await res.text();
-  return { ok: false, message: `Fleet API ${res.status}: ${text.slice(0, 200)}` };
+  return { ok: false, message: `Fleet API ${res.status}: ${text.slice(0, 300)}`, statusCode: res.status };
 }
 
 /**

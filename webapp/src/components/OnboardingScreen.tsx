@@ -82,8 +82,24 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       if (res?.success !== false) onLinked();
     } catch (e: unknown) {
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
-      const err = e as { response?: { data?: { message?: string; error?: string } } };
-      setError(err.response?.data?.message ?? err.response?.data?.error ?? "Ошибка подключения. Проверьте API-ключ и ID парка.");
+      const err = e as {
+        response?: {
+          data?: {
+            message?: string;
+            error?: string;
+            code?: string;
+            fleetStatus?: number;
+          };
+        };
+      };
+      const data = err.response?.data;
+      const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ и ID парка.";
+      const fleetStatus = data?.fleetStatus;
+      const display =
+        fleetStatus != null
+          ? `Fleet API ответил: HTTP ${fleetStatus}.\n${msg}`
+          : msg;
+      setError(display);
     } finally {
       setLoading(false);
     }
@@ -181,9 +197,24 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             </p>
           </div>
           {error && (
-            <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginBottom: 16 }}>
+            <div
+              style={{
+                color: "var(--tg-theme-destructive-text-color, #c00)",
+                fontSize: 13,
+                marginBottom: 16,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 120,
+                overflow: "auto",
+                padding: 8,
+                background: "var(--tg-theme-bg-color, #fff)",
+                borderRadius: 8,
+                border: "1px solid var(--tg-theme-destructive-text-color, #c00)",
+              }}
+              role="alert"
+            >
               {error}
-            </p>
+            </div>
           )}
 
           {loading && (

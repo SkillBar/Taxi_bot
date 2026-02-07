@@ -63,6 +63,7 @@ export async function managerRoutes(app: FastifyInstance) {
       const manager = await prisma.manager.findUnique({ where: { id: managerId } });
       hasFleet = Boolean(manager?.yandexApiKey);
     }
+    app.log.info({ step: "manager/me", telegramUserId, managerId, hasFleet });
     return reply.send({
       telegramUserId,
       firstName: user?.first_name != null ? user.first_name : null,
@@ -87,18 +88,34 @@ export async function managerRoutes(app: FastifyInstance) {
     if (!parkId) return reply.status(400).send({ error: "parkId required", message: "Введите ID парка" });
 
     const clientId = clientIdRaw && clientIdRaw.length > 0 ? clientIdRaw : `taxi/park/${parkId}`;
+    app.log.info({
+      step: "connect-fleet:start",
+      managerId,
+      parkId,
+      clientId,
+      apiKeyPrefix: apiKey.slice(0, 6) + "...",
+    });
     const validation = await validateFleetCredentials(apiKey, parkId, clientId);
     if (!validation.ok) {
+      app.log.warn({
+        step: "connect-fleet:fleet_validation_failed",
+        managerId,
+        parkId,
+        fleetStatus: validation.statusCode,
+        message: validation.message?.slice(0, 200),
+      });
       return reply.status(400).send({
         error: "Invalid Fleet credentials",
+        code: "FLEET_VALIDATION_FAILED",
+        fleetStatus: validation.statusCode,
         message: validation.message || "Неверный API-ключ или ID парка. Проверьте данные в кабинете fleet.yandex.ru",
       });
     }
-
     await prisma.manager.update({
       where: { id: managerId },
       data: { yandexApiKey: apiKey, yandexParkId: parkId, yandexClientId: clientId },
     });
+    app.log.info({ step: "connect-fleet:success", managerId, parkId });
     return reply.send({ success: true, message: "Парк успешно подключён!" });
   });
 

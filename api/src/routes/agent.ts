@@ -18,18 +18,24 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get("/me", async (req, reply) => {
     const initData = (req.headers["x-telegram-init-data"] as string) || "";
     if (!initData || !validateInitData(initData, config.botToken)) {
+      app.log.info({ step: "agents/me", result: "initData_invalid" });
       return reply.status(401).send({ error: "Invalid or missing initData" });
     }
     const { user } = parseInitData(initData);
-    if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
+    if (!user?.id) {
+      app.log.info({ step: "agents/me", result: "user_missing" });
+      return reply.status(401).send({ error: "User not in initData" });
+    }
     const agent = await prisma.agent.findUnique({
       where: { telegramUserId: String(user.id) },
     });
+    const linked = Boolean(agent?.isActive);
+    app.log.info({ step: "agents/me", telegramUserId: user.id, linked, agentId: agent?.id ?? null });
     return reply.send({
       telegramUserId: user.id,
       firstName: user.first_name != null ? user.first_name : null,
       lastName: user.last_name != null ? user.last_name : null,
-      linked: Boolean(agent?.isActive),
+      linked,
     });
   });
 
@@ -68,6 +74,7 @@ export async function agentRoutes(app: FastifyInstance) {
   }>("/link-from-bot", async (req, reply) => {
     const secret = (req.headers["x-api-secret"] as string) || "";
     if (!config.apiSecret || secret !== config.apiSecret) {
+      app.log.warn({ step: "link-from-bot", result: "invalid_secret" });
       return reply.status(401).send({ error: "Invalid or missing X-Api-Secret" });
     }
     const body = req.body as { phone?: string; telegramUserId?: string };
@@ -83,6 +90,13 @@ export async function agentRoutes(app: FastifyInstance) {
     if (!agent) {
       const external = await checkExternalAgent(phone);
       if (!external?.found || !external.isActive) {
+        app.log.info({
+          step: "link-from-bot",
+          result: "agent_not_found",
+          phoneSuffix: phone.slice(-4),
+          telegramUserId,
+          externalMessage: external?.message,
+        });
         return reply.status(404).send({
           error: "Agent not found",
           message: external?.message || "Ваш номер не найден в системе. Обратитесь к администратору.",
@@ -93,6 +107,13 @@ export async function agentRoutes(app: FastifyInstance) {
     await prisma.agent.update({
       where: { id: agent.id },
       data: { telegramUserId: String(telegramUserId) },
+    });
+    app.log.info({
+      step: "link-from-bot",
+      result: "success",
+      agentId: agent.id,
+      telegramUserId,
+      phoneSuffix: phone.slice(-4),
     });
     return reply.send({ agentId: agent.id });
   });
