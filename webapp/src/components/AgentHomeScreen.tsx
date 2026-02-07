@@ -47,15 +47,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
   useEffect(() => {
     getAgentsMe()
-      .then(setUser)
+      .then((me) => setUser(me ?? null))
       .catch(() => setUser(null));
   }, []);
 
   const fetchDrivers = async () => {
     setDriversLoading(true);
     try {
-      const res = await api.get<{ drivers: Driver[] }>("/api/manager/drivers");
-      setDrivers(res.data.drivers ?? []);
+      const res = await api.get<{ drivers?: Driver[] }>("/api/manager/drivers");
+      const list = res?.data?.drivers;
+      setDrivers(Array.isArray(list) ? list : []);
     } catch {
       setDrivers([]);
     } finally {
@@ -149,7 +150,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             ) : drivers.length === 0 ? (
               <Placeholder header="Исполнители не найдены" description="Добавьте водителя ниже или обратитесь к администратору" />
             ) : (
-              drivers.map((driver) => (
+              drivers.filter((d) => d?.id).map((driver) => (
                 <Cell
                   key={driver.id}
                   before={

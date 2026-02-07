@@ -35,7 +35,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [parkId, setParkId] = useState("");
-  const [clientId, setClientId] = useState("");
 
   const handleRequestContact = useCallback(() => {
     const wa = window.Telegram?.WebApp;
@@ -73,7 +72,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
-      await connectFleet(key, park, clientId.trim() || undefined);
+      await connectFleet(key, park);
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       mainBtn?.hide();
       onLinked();
@@ -84,7 +83,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, parkId, clientId, onLinked]);
+  }, [apiKey, parkId, onLinked]);
 
   useEffect(() => {
     getAgentsMe()
@@ -174,16 +173,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               disabled={loading}
             />
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <Input
-              header="Client ID (необязательно)"
-              placeholder="taxi/park/28499fad6fb246c6827dcd3452ba1384"
-              value={clientId}
-              onChange={(e) => setClientId((e.target as HTMLInputElement).value)}
-              disabled={loading}
-            />
-          </div>
-
           {error && (
             <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginBottom: 16 }}>
               {error}

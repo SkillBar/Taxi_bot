@@ -169,11 +169,14 @@ export default function App() {
     return <OnboardingScreen onLinked={() => setScreen("home")} />;
   }
 
-  // —— Главный экран: приветствие + исполнители + кнопки ———
+  // —— Главный экран: всегда показываем кабинет (даже без данных от Яндекса) ———
   if (screen === "home") {
     return (
       <HomeErrorBoundary onBack={() => setScreen("init")}>
         <div style={{ minHeight: "100vh", background: "#f5f5f5", color: "#000" }}>
+          <div style={{ padding: "16px", background: "#f5f5f5", borderBottom: "1px solid #eee" }}>
+            <h1 style={{ fontSize: 18, margin: 0, color: "#000" }}>Кабинет агента такси</h1>
+          </div>
           <AgentHomeScreen
             onRegisterDriver={() => startRegistration("driver")}
             onRegisterCourier={() => startRegistration("courier")}
