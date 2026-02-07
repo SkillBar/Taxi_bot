@@ -23,12 +23,12 @@ export type FleetCredentials = {
   clientId: string;
 };
 
+/** По документации Fleet API: только X-Client-ID и X-API-Key. Park ID передаётся в теле в query.park.id. */
 function headersFrom(creds: FleetCredentials): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "X-Client-ID": creds.clientId,
     "X-API-Key": creds.apiKey,
-    "X-Park-ID": creds.parkId,
   };
 }
 
@@ -45,17 +45,18 @@ export function isConfigured(): boolean {
 }
 
 /**
- * Проверка API-ключа: тестовый запрос к Fleet. clientId = taxi/park/{parkId}.
+ * Проверка API-ключа: тестовый запрос к Fleet.
+ * clientId — из кабинета (Настройки → API); если не передан, берётся taxi/park/{parkId}.
  */
-export async function validateFleetCredentials(apiKey: string, parkId: string): Promise<{ ok: boolean; message?: string }> {
-  const clientId = `taxi/park/${parkId}`;
+export async function validateFleetCredentials(apiKey: string, parkId: string, clientId?: string): Promise<{ ok: boolean; message?: string }> {
+  const resolvedClientId = (clientId && clientId.trim()) ? clientId.trim() : `taxi/park/${parkId}`;
   const body = {
     query: { park: { id: parkId } },
     limit: 1,
   };
   const res = await fetch(DRIVER_PROFILES_LIST, {
     method: "POST",
-    headers: headersFrom({ apiKey, parkId, clientId }),
+    headers: headersFrom({ apiKey, parkId, clientId: resolvedClientId }),
     body: JSON.stringify(body),
   });
   if (res.ok) return { ok: true };
@@ -73,6 +74,16 @@ export function normalizePhoneForYandex(raw: string): string {
   return raw.startsWith("+") ? raw : "+" + raw;
 }
 
+/** Из поля phones в ответе Fleet API (массив строк или объектов с number). */
+function parsePhoneFromPhones(phones: unknown): string | null {
+  if (Array.isArray(phones) && phones.length > 0) {
+    const first = phones[0];
+    if (typeof first === "string") return first;
+    if (first != null && typeof first === "object" && "number" in first) return String((first as { number?: string }).number ?? "");
+  }
+  return null;
+}
+
 /**
  * Поиск водителя в Яндексе по номеру телефона (query.text).
  * creds — учётные данные менеджера; если не переданы, используется глобальный config.
@@ -83,17 +94,17 @@ export async function findDriverByPhone(phone: string, creds?: FleetCredentials 
   const parkId = useCreds.parkId;
   const normalized = normalizePhoneForYandex(phone);
 
+  // limit/offset — на верхнем уровне тела (документация Fleet API)
   const body = {
     query: {
       park: { id: parkId },
       text: normalized,
-      limit: 1,
     },
     fields: {
-      driver_profile: ["id", "work_status"],
-      person: ["full_name", "contact_info"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
       account: ["balance", "currency"],
     },
+    limit: 1,
   };
 
   const res = await fetch(DRIVER_PROFILES_LIST, {
@@ -109,8 +120,7 @@ export async function findDriverByPhone(phone: string, creds?: FleetCredentials 
 
   const data = (await res.json()) as {
     driver_profiles?: Array<{
-      driver_profile?: { id?: string; work_status?: string };
-      person?: { full_name?: string; contact_info?: { phone?: string } };
+      driver_profile?: { id?: string; work_status?: string; first_name?: string; last_name?: string; phones?: unknown };
       accounts?: Array<{ balance?: string }>;
     }>;
   };
@@ -119,12 +129,15 @@ export async function findDriverByPhone(phone: string, creds?: FleetCredentials 
   if (list.length === 0) return null;
 
   const d = list[0];
-  const id = d.driver_profile?.id || "";
-  const name = d.person?.full_name || null;
-  const phoneVal = d.person?.contact_info?.phone || normalized;
+  const profile = d.driver_profile;
+  const id = profile?.id || "";
+  const firstName = profile?.first_name?.trim() || "";
+  const lastName = profile?.last_name?.trim() || "";
+  const name = [firstName, lastName].filter(Boolean).join(" ") || null;
+  const phoneVal = parsePhoneFromPhones(profile?.phones) || normalized;
   const balanceRaw = d.accounts?.[0]?.balance;
   const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
-  const workStatus = d.driver_profile?.work_status;
+  const workStatus = profile?.work_status;
 
   return { yandexId: id, name, phone: phoneVal, balance, workStatus };
 }
@@ -146,12 +159,11 @@ export async function getDriversStatus(
     query: {
       park: {
         id: parkId,
-        driver_profile: { ids: driverIds },
+        driver_profile: { id: driverIds },
       },
     },
     fields: {
-      driver_profile: ["id", "work_status"],
-      person: ["full_name", "contact_info"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
       account: ["balance", "currency"],
     },
   };
@@ -169,20 +181,22 @@ export async function getDriversStatus(
 
   const data = (await res.json()) as {
     driver_profiles?: Array<{
-      driver_profile?: { id?: string; work_status?: string };
-      person?: { full_name?: string; contact_info?: { phone?: string } };
+      driver_profile?: { id?: string; work_status?: string; first_name?: string; last_name?: string; phones?: unknown };
       accounts?: Array<{ balance?: string }>;
     }>;
   };
 
   for (const d of data.driver_profiles || []) {
-    const id = d.driver_profile?.id;
+    const profile = d.driver_profile;
+    const id = profile?.id;
     if (!id) continue;
-    const name = d.person?.full_name || null;
-    const phone = d.person?.contact_info?.phone || "";
+    const firstName = profile?.first_name?.trim() || "";
+    const lastName = profile?.last_name?.trim() || "";
+    const name = [firstName, lastName].filter(Boolean).join(" ") || null;
+    const phone = parsePhoneFromPhones(profile?.phones) || "";
     const balanceRaw = d.accounts?.[0]?.balance;
     const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
-    const workStatus = d.driver_profile?.work_status;
+    const workStatus = profile?.work_status;
     result.set(id, { name, phone, balance, workStatus });
   }
 

@@ -76,16 +76,18 @@ export async function managerRoutes(app: FastifyInstance) {
    * Body: { apiKey: string, parkId: string }
    * Проверяет ключ тестовым запросом к Fleet, сохраняет в Manager.
    */
-  app.post<{ Body: { apiKey?: string; parkId?: string } }>("/connect-fleet", async (req, reply) => {
+  app.post<{ Body: { apiKey?: string; parkId?: string; clientId?: string } }>("/connect-fleet", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
     const apiKey = (req.body as { apiKey?: string })?.apiKey?.trim();
     const parkId = (req.body as { parkId?: string })?.parkId?.trim();
+    const clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
     if (!parkId) return reply.status(400).send({ error: "parkId required", message: "Введите ID парка" });
 
-    const validation = await validateFleetCredentials(apiKey, parkId);
+    const clientId = clientIdRaw && clientIdRaw.length > 0 ? clientIdRaw : `taxi/park/${parkId}`;
+    const validation = await validateFleetCredentials(apiKey, parkId, clientId);
     if (!validation.ok) {
       return reply.status(400).send({
         error: "Invalid Fleet credentials",
@@ -93,7 +95,6 @@ export async function managerRoutes(app: FastifyInstance) {
       });
     }
 
-    const clientId = `taxi/park/${parkId}`;
     await prisma.manager.update({
       where: { id: managerId },
       data: { yandexApiKey: apiKey, yandexParkId: parkId, yandexClientId: clientId },

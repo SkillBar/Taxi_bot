@@ -36,8 +36,8 @@ export async function getManagerMe(): Promise<{ hasFleet: boolean }> {
 }
 
 /** Подключить Yandex Fleet (API-ключ + ID парка). */
-export async function connectFleet(apiKey: string, parkId: string): Promise<{ success: boolean }> {
-  const res = await api.post<{ success: boolean }>("/api/manager/connect-fleet", { apiKey, parkId });
+export async function connectFleet(apiKey: string, parkId: string, clientId?: string): Promise<{ success: boolean }> {
+  const res = await api.post<{ success: boolean }>("/api/manager/connect-fleet", { apiKey, parkId, clientId: clientId || undefined });
   return res.data;
 }
 

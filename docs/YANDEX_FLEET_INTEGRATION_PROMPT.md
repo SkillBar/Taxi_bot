@@ -17,9 +17,9 @@
 | Элемент | Статус | Примечание |
 |--------|--------|------------|
 | Базовый URL | ✅ | `https://fleet-api.taxi.yandex.net` (не сокращённый fleet-api.yandex.net) |
-| X-Client-ID | Обязательно | Идентификатор клиента |
+| X-Client-ID | Обязательно | Идентификатор клиента из кабинета (обычно вида `taxi/park/{park_id}`). Берётся в Настройки → API при создании ключа. |
 | X-API-Key | Обязательно | Секретный API-ключ |
-| ID парка | В теле запроса | В методе `driver-profiles/list` передаётся в `query.park.id`. При необходимости дублировать в заголовке `X-Park-ID` для роутинга — держать под рукой. |
+| ID парка | В теле запроса | В методе `driver-profiles/list` передаётся в `query.park.id`. В заголовках по официальной документации только X-Client-ID и X-API-Key (X-Park-ID не используется). |
 
 ---
 
@@ -35,7 +35,7 @@
 ### Б. Список «моих водителей» (батч по ID)
 
 - **Не делать** цикл с `query.text` по каждому водителю — долго и лимиты.
-- Использовать **`query.park.driver_profile.ids`** — массив из 50–100 `driver_profile_id` за один запрос.
+- Использовать **`query.park.driver_profile.id`** — массив из 50–100 `driver_profile_id` за один запрос (в OpenAPI поле фильтра называется `id`, не `ids`).
 
 Пример тела для списка по ID:
 
@@ -45,7 +45,7 @@
     "park": {
       "id": "PARK_ID",
       "driver_profile": {
-        "ids": ["id_voditelya_1", "id_voditelya_2", "id_voditelya_3"]
+        "id": ["id_voditelya_1", "id_voditelya_2", "id_voditelya_3"]
       }
     }
   },
@@ -56,8 +56,7 @@
 ### В. Проекция (fields)
 
 - **account** → в ответе **`accounts`** (массив; обычно берём первый счёт).
-- **person** → **`contact_info`** (телефон, email).
-- **driver_profile** → **`id`**, **`work_status`** (статус работы).
+- **driver_profile** → **`id`**, **`work_status`**, **`first_name`**, **`last_name`**, **`phones`** (имя и телефон в профиле; в ответе нет блока `person`, только `driver_profile`).
 
 ---
 

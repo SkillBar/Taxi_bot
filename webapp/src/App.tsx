@@ -1,10 +1,35 @@
-import { useState, useEffect } from "react";
+import { Component, useState, useEffect } from "react";
 import { getAgentsMe, getCurrentDraft, createDraft, type Draft } from "./api";
 import { getManagerMe } from "./lib/api";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { AgentHomeScreen } from "./components/AgentHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
+
+class HomeErrorBoundary extends Component<
+  { children: React.ReactNode; onBack: () => void },
+  { hasError: boolean; error?: Error }
+> {
+  state = { hasError: false as boolean, error: undefined as Error | undefined };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 20, minHeight: "100vh", background: "#f5f5f5" }}>
+          <p style={{ color: "#000", marginBottom: 12 }}>Произошла ошибка при загрузке.</p>
+          <button type="button" className="secondary" onClick={this.props.onBack}>
+            На главную
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Screen =
   | "init"       // проверка linked
@@ -20,20 +45,23 @@ export default function App() {
   const [type, setType] = useState<"driver" | "courier">("driver");
   const [draft, setDraft] = useState<Draft | null | "new">(null);
 
-  // При загрузке: если привязан как агент и подключён Fleet — главный экран, иначе онбординг
+  // При загрузке: если привязан как агент и подключён Fleet — главный экран, иначе онбординг. Меняем экран только пока init.
   useEffect(() => {
     getAgentsMe()
       .then((me) => {
-        if (!me.linked) {
-          setScreen("onboarding");
-          return;
-        }
-        return getManagerMe().then((manager) => {
-          setScreen(manager.hasFleet ? "home" : "onboarding");
+        setScreen((prev) => {
+          if (prev !== "init") return prev;
+          if (!me.linked) return "onboarding";
+          return prev;
         });
+        if (me.linked) {
+          return getManagerMe().then((manager) => {
+            setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
+          });
+        }
       })
       .catch(() => {
-        setScreen("onboarding");
+        setScreen((prev) => (prev === "init" ? "onboarding" : prev));
       });
   }, []);
 
@@ -144,13 +172,15 @@ export default function App() {
   // —— Главный экран: приветствие + исполнители + кнопки ———
   if (screen === "home") {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
-        <AgentHomeScreen
-          onRegisterDriver={() => startRegistration("driver")}
-          onRegisterCourier={() => startRegistration("courier")}
-          onOpenManager={() => setScreen("manager")}
-        />
-      </div>
+      <HomeErrorBoundary onBack={() => setScreen("init")}>
+        <div style={{ minHeight: "100vh", background: "#f5f5f5", color: "#000" }}>
+          <AgentHomeScreen
+            onRegisterDriver={() => startRegistration("driver")}
+            onRegisterCourier={() => startRegistration("courier")}
+            onOpenManager={() => setScreen("manager")}
+          />
+        </div>
+      </HomeErrorBoundary>
     );
   }
 
