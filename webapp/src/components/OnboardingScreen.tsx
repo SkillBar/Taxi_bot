@@ -4,9 +4,6 @@ import { Input, Button } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
 import { getManagerMe, connectFleet } from "../lib/api";
 
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 30000;
-
 declare global {
   interface Window {
     Telegram?: {
@@ -35,36 +32,9 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [step, setStep] = useState<Step>("contact");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [parkId, setParkId] = useState("");
-
-  const pollUntilLinked = useCallback(() => {
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-    const tick = async () => {
-      if (Date.now() > deadline) {
-        setLoading(false);
-        setError("Время ожидания истекло. Закройте и откройте приложение снова.");
-        return;
-      }
-      try {
-        const me = await getAgentsMe();
-        if (me.linked) {
-          setLoading(false);
-          const manager = await getManagerMe();
-          if (manager.hasFleet) {
-            onLinked();
-            return;
-          }
-          setStep("fleet");
-          return;
-        }
-      } catch {
-        // ignore
-      }
-      setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    tick();
-  }, [onLinked]);
 
   const handleRequestContact = useCallback(() => {
     const wa = window.Telegram?.WebApp;
@@ -76,13 +46,15 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     setLoading(true);
     wa.requestContact((sent) => {
       if (sent) {
-        pollUntilLinked();
+        setLoading(false);
+        setContactSent(true);
+        setStep("fleet");
       } else {
         setLoading(false);
         setError("Нужно поделиться контактом для продолжения.");
       }
     });
-  }, [pollUntilLinked]);
+  }, []);
 
   const handleConnectFleet = async () => {
     const key = apiKey.trim();
@@ -150,6 +122,11 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           }}
         >
           <div style={{ textAlign: "center", marginBottom: 24 }}>
+            {contactSent && (
+              <p style={{ fontSize: 14, color: "var(--tg-theme-button-color)", margin: "0 0 12px", fontWeight: 600 }}>
+                Номер подтверждён.
+              </p>
+            )}
             <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color)" }}>
               Подключите ваш парк Yandex Fleet
             </h1>
