@@ -88,11 +88,13 @@ export async function managerRoutes(app: FastifyInstance) {
     const clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
     if (!parkId) {
+      app.log.info({ step: "connect-fleet", message: "Пытаюсь определить parkId по ключу" });
       parkId = (await tryDiscoverParkId(apiKey)) ?? "";
       if (!parkId) {
+        app.log.warn({ step: "connect-fleet", message: "Не удалось определить parkId по ключу" });
         return reply.status(400).send({
           error: "parkId required",
-          message: "Введите ID парка или проверьте API-ключ — не удалось определить парк по ключу.",
+          message: "Введите ID парка из кабинета Fleet (Настройки → Общая информация). Fleet API не возвращает список парков по ключу.",
         });
       }
     }
@@ -114,6 +116,7 @@ export async function managerRoutes(app: FastifyInstance) {
         fleetStatus: validation.statusCode,
         message: validation.message?.slice(0, 200),
       });
+      app.log.warn({ step: "connect-fleet:fleet_error_details", details: validation.message });
       const humanMessage = fleetStatusToRussian(validation.statusCode);
       return reply.status(400).send({
         error: "Invalid Fleet credentials",

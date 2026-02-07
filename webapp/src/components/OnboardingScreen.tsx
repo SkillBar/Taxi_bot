@@ -28,6 +28,10 @@ export interface OnboardingScreenProps {
 
 type Step = "contact" | "fleet";
 
+// Фиксированные значения для парка (вводится только API-ключ)
+const DEFAULT_PARK_ID = "28499fad6fb246c6827dcd3452ba1384";
+const DEFAULT_CLIENT_ID = "taxi/park/28499fad6fb246c6827dcd3452ba1384";
+
 export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [step, setStep] = useState<Step>("contact");
   const [loading, setLoading] = useState(false);
@@ -66,7 +70,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
-      const res = await connectFleet(key, "", undefined);
+      const res = await connectFleet(key, DEFAULT_PARK_ID, DEFAULT_CLIENT_ID);
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       mainBtn?.hide();
       // Запрос прошёл — сразу открываем личный кабинет
@@ -159,7 +163,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               Подключите ваш парк Yandex Fleet
             </h1>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Введите <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. Парк определится по ключу автоматически.
+              Введите <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. ID парка и Client ID подставлены автоматически.
             </p>
           </div>
 

@@ -111,13 +111,20 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
       headers,
       body: JSON.stringify({}),
     });
+    console.log(`[tryDiscoverParkId] POST /v1/parks/info → HTTP ${resInfo.status}`);
     if (resInfo.ok) {
       const data = (await resInfo.json()) as { park?: { id?: string }; parks?: Array<{ id?: string }> };
       const id = data?.park?.id ?? data?.parks?.[0]?.id;
-      if (typeof id === "string" && id.length > 0) return id;
+      if (typeof id === "string" && id.length > 0) {
+        console.log(`[tryDiscoverParkId] parkId определён по /parks/info: ${id}`);
+        return id;
+      }
+    } else {
+      const text = await resInfo.text();
+      console.log(`[tryDiscoverParkId] /parks/info body: ${text.slice(0, 200)}`);
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.log(`[tryDiscoverParkId] /parks/info error:`, (e as Error).message);
   }
 
   // 2) /v1/parks/list — список парков
@@ -127,13 +134,23 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
       headers,
       body: JSON.stringify({}),
     });
-    if (!res.ok) return null;
+    console.log(`[tryDiscoverParkId] POST /v1/parks/list → HTTP ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text();
+      console.log(`[tryDiscoverParkId] /parks/list body: ${text.slice(0, 200)}`);
+      return null;
+    }
     const data = (await res.json()) as { parks?: Array<{ id?: string }> };
     const id = data?.parks?.[0]?.id;
-    return typeof id === "string" && id.length > 0 ? id : null;
-  } catch {
-    return null;
+    if (typeof id === "string" && id.length > 0) {
+      console.log(`[tryDiscoverParkId] parkId определён по /parks/list: ${id}`);
+      return id;
+    }
+  } catch (e) {
+    console.log(`[tryDiscoverParkId] /parks/list error:`, (e as Error).message);
   }
+  console.log(`[tryDiscoverParkId] не удалось определить parkId по ключу`);
+  return null;
 }
 
 /**
