@@ -88,9 +88,13 @@ export default function App() {
           return prev;
         });
         if (agentMe.linked) {
-          return getManagerMe().then((manager) => {
-            setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
-          });
+          return getManagerMe()
+            .then((manager) => {
+              setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
+            })
+            .catch(() => {
+              setScreen((prev) => (prev === "init" ? "onboarding" : prev));
+            });
         }
       })
       .catch(() => {
