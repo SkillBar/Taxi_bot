@@ -145,94 +145,93 @@ export default function App() {
     setScreen("home");
   };
 
-  // —— Полный кабинет менеджера (список + добавление водителя) ———
-  if (screen === "manager") {
-    return (
-      <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)" }}>
-        <div style={{ padding: 12 }}>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setScreen("home")}
-            style={{ marginBottom: 8 }}
-          >
-            ← Назад
-          </button>
-        </div>
-        <ManagerDashboard />
-      </div>
-    );
-  }
+  // Одна обёртка: всегда видимый фон и верхняя полоса, чтобы не было пустого экрана в WebView
+  const wrapperStyle: React.CSSProperties = {
+    minHeight: "100vh",
+    background: "#ffffff",
+    color: "#000000",
+  };
+  const topBarStyle: React.CSSProperties = {
+    padding: "12px 16px",
+    background: "#ffffff",
+    color: "#000000",
+    borderBottom: "1px solid #e0e0e0",
+    fontSize: 16,
+    fontWeight: 600,
+  };
 
-  // —— Онбординг: подключение по номеру Telegram ———
-  if (screen === "onboarding") {
-    return <OnboardingScreen onLinked={() => setScreen("home")} />;
-  }
+  return (
+    <div style={wrapperStyle}>
+      <div style={topBarStyle}>Кабинет агента такси</div>
 
-  // —— Главный экран: всегда показываем кабинет (даже без данных от Яндекса) ———
-  if (screen === "home") {
-    return (
-      <HomeErrorBoundary onBack={() => setScreen("init")}>
-        <div style={{ minHeight: "100vh", background: "#f5f5f5", color: "#000" }}>
-          <div style={{ padding: "16px", background: "#f5f5f5", borderBottom: "1px solid #eee" }}>
-            <h1 style={{ fontSize: 18, margin: 0, color: "#000" }}>Кабинет агента такси</h1>
+      {screen === "manager" && (
+        <>
+          <div style={{ padding: 12 }}>
+            <button type="button" className="secondary" onClick={() => setScreen("home")} style={{ marginBottom: 8 }}>
+              ← Назад
+            </button>
           </div>
+          <ManagerDashboard />
+        </>
+      )}
+
+      {screen === "onboarding" && <OnboardingScreen onLinked={() => setScreen("home")} />}
+
+      {screen === "home" && (
+        <HomeErrorBoundary onBack={() => setScreen("init")}>
           <AgentHomeScreen
             onRegisterDriver={() => startRegistration("driver")}
             onRegisterCourier={() => startRegistration("courier")}
             onOpenManager={() => setScreen("manager")}
           />
+        </HomeErrorBoundary>
+      )}
+
+      {(screen === "init" || screen === "loading") && (
+        <div style={{ padding: 20, textAlign: "center", background: "#ffffff", color: "#000000" }}>
+          Загрузка…
         </div>
-      </HomeErrorBoundary>
-    );
-  }
+      )}
 
-  // —— Инициализация или загрузка ———
-  if (screen === "init" || screen === "loading") {
-    return (
-      <div style={{ padding: 20, textAlign: "center", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        Загрузка…
-      </div>
-    );
-  }
+      {screen === "resume" && draft && typeof draft === "object" && "id" in draft && (
+        <div style={{ padding: 20 }}>
+          <p>Продолжить регистрацию или начать заново?</p>
+          <button type="button" className="primary" onClick={continueRegistration}>
+            Продолжить регистрацию
+          </button>
+          <button type="button" className="secondary" onClick={startOver}>
+            Начать заново
+          </button>
+          <button type="button" className="secondary" onClick={backToHome} style={{ marginTop: 8 }}>
+            На главную
+          </button>
+        </div>
+      )}
 
-  // —— Продолжить регистрацию или начать заново ———
-  if (screen === "resume" && draft && typeof draft === "object" && "id" in draft) {
-    return (
-      <div style={{ padding: 20 }}>
-        <p>Продолжить регистрацию или начать заново?</p>
-        <button type="button" className="primary" onClick={continueRegistration}>
-          Продолжить регистрацию
-        </button>
-        <button type="button" className="secondary" onClick={startOver}>
-          Начать заново
-        </button>
-        <button type="button" className="secondary" onClick={backToHome} style={{ marginTop: 8 }}>
-          На главную
-        </button>
-      </div>
-    );
-  }
+      {screen === "flow" && draft && typeof draft === "object" && "id" in draft && (
+        <RegistrationFlow
+          draft={draft}
+          setDraft={setDraft}
+          type={type}
+          onClose={() => window.Telegram?.WebApp?.close?.()}
+          onSendData={(data) => window.Telegram?.WebApp?.sendData?.(data)}
+          onBackToWelcome={backToHome}
+        />
+      )}
 
-  // —— Регистрация (драфт) ———
-  if (screen === "flow" && draft && typeof draft === "object" && "id" in draft) {
-    return (
-      <RegistrationFlow
-        draft={draft}
-        setDraft={setDraft}
-        type={type}
-        onClose={() => window.Telegram?.WebApp?.close?.()}
-        onSendData={(data) => window.Telegram?.WebApp?.sendData?.(data)}
-        onBackToWelcome={backToHome}
-      />
-    );
-  }
-
-  return (
-    <div style={{ padding: 20 }}>
-      <button type="button" className="secondary" onClick={backToHome}>
-        На главную
-      </button>
+      {screen !== "manager" &&
+        screen !== "onboarding" &&
+        screen !== "home" &&
+        screen !== "init" &&
+        screen !== "loading" &&
+        screen !== "resume" &&
+        screen !== "flow" && (
+          <div style={{ padding: 20 }}>
+            <button type="button" className="secondary" onClick={backToHome}>
+              На главную
+            </button>
+          </div>
+        )}
     </div>
   );
 }

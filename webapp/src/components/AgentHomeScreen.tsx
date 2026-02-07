@@ -129,16 +129,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     <AppRoot>
       <main
         style={{
-          minHeight: "100vh",
-          background: "#f5f5f5",
+          minHeight: "60vh",
+          background: "#ffffff",
+          color: "#000000",
           paddingBottom: 24,
         }}
       >
-        <div style={{ padding: "20px 16px 16px", background: "#f5f5f5", color: "#000000" }}>
-          <h1 style={{ fontSize: 20, margin: "0 0 4px", color: "#000000" }}>
-            {name ? `${name}, добро пожаловать в кабинет агента такси!` : "Добро пожаловать в кабинет агента такси!"}
-          </h1>
-          <p style={{ fontSize: 14, color: "#666666", margin: 0 }}>Далее</p>
+        <div style={{ padding: "12px 16px", background: "#ffffff", color: "#000000" }}>
+          <p style={{ fontSize: 14, color: "#333333", margin: 0 }}>
+            {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
+          </p>
         </div>
 
         <List>
