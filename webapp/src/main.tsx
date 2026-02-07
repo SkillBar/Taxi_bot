@@ -1,15 +1,25 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom/client";
+import { init as initSDK, themeParams } from "@telegram-apps/sdk-react";
 import { initTelegramWebApp } from "./telegramWebApp";
 import App from "./App";
 import "./index.css";
 import "@telegram-apps/telegram-ui/dist/styles.css";
 
-// Инициализация по гайдлайнам Telegram Mini Apps (без подгрузки темы TG)
+// 1) Legacy WebApp (ready, expand, header/background colors)
 try {
   initTelegramWebApp();
 } catch {
-  // Вне Telegram или при ошибке SDK
+  // Вне Telegram или при ошибке
+}
+
+// 2) @telegram-apps/sdk: обязательна для telegram-ui (AppRoot, List, Section) — без init() падает с «Не удалось загрузить интерфейс»
+try {
+  initSDK();
+  if (themeParams.mountSync?.isAvailable?.()) themeParams.mountSync();
+  if (themeParams.bindCssVars?.isAvailable?.()) themeParams.bindCssVars();
+} catch {
+  // Вне Telegram: тема не применится, но приложение не упадёт (есть UIErrorBoundary + SimpleHomeScreen)
 }
 
 class RootErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
