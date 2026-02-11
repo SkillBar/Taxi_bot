@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import { Input } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
@@ -38,6 +38,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const errorBlockRef = useRef<HTMLDivElement>(null);
 
   const handleRequestContact = useCallback(() => {
     const wa = window.Telegram?.WebApp;
@@ -60,9 +61,14 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   }, []);
 
   const handleConnectFleet = useCallback(async () => {
+    if (typeof console !== "undefined") console.log("[Fleet] Подключить нажато");
+    // Отладка при ?skipContact=1 или ?debug=1: если alert не показывается — клик не доходит до обработчика
+    const showDebugAlert = typeof window !== "undefined" && (window.location.search.includes("skipContact=1") || window.location.search.includes("debug=1"));
+    if (showDebugAlert) window.alert("Кнопка «Подключить» нажата. Дальше идёт запрос к API…");
     const key = apiKey.trim();
     if (!key) {
       setError("Введите API-ключ");
+      setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
       return;
     }
     setError(null);
@@ -102,6 +108,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           setError(
             "Нет связи с сервером. Проверьте: 1) интернет; 2) откройте приложение из Telegram (не в браузере); 3) при сборке/деплое задан верный адрес API (VITE_API_URL = URL вашего бэкенда)."
           );
+          setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
           return;
         }
 
@@ -111,10 +118,11 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             data?.message ??
             "Не удалось войти. Откройте мини-приложение именно из Telegram (не в браузере) и попробуйте снова.";
           setError(msg);
-          return;
-        }
+          setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+        return;
+      }
 
-        // 400 — ошибка проверки подключения к парку (Fleet)
+      // 400 — ошибка проверки подключения к парку (Fleet)
         if (status === 400 && data?.code === "FLEET_VALIDATION_FAILED") {
           const humanMsg = data?.message ?? "Ошибка подключения к парку. Проверьте API-ключ и ID парка.";
           const fleetStatus = data?.fleetStatus;
@@ -124,17 +132,20 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           if (fleetStatus != null) parts.push(`Код ответа Fleet: HTTP ${fleetStatus}`);
           if (fleetHint) parts.push(`Ответ Яндекс: ${fleetHint}`);
           if (details) parts.push(`Подробности: ${details}`);
-          setError(parts.join("\n\n"));
-          return;
-        }
+        setError(parts.join("\n\n"));
+        setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+        return;
+      }
 
-        // Любая другая ошибка
+      // Любая другая ошибка
         const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ.";
         const details = data?.details;
         setError(details ? `${msg}\n\nПодробности: ${details}` : msg);
+        setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
       } catch (inner) {
         const fallbackMsg = inner instanceof Error ? inner.message : String(inner);
         setError(`Ошибка: ${fallbackMsg}`);
+        setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
         if (typeof console !== "undefined") console.error("[connect-fleet]", inner);
       }
     } finally {
@@ -234,6 +245,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           </div>
           {error && (
             <div
+              ref={errorBlockRef}
               style={{
                 color: "var(--tg-theme-destructive-text-color, #c00)",
                 fontSize: 13,
