@@ -114,14 +114,24 @@ export async function managerRoutes(app: FastifyInstance) {
         managerId,
         parkId,
         fleetStatus: validation.statusCode,
+        fleetCode: validation.fleetCode,
+        fleetMessage: validation.fleetMessage,
         message: validation.message?.slice(0, 200),
       });
       app.log.warn({ step: "connect-fleet:fleet_error_details", details: validation.message });
       const humanMessage = fleetStatusToRussian(validation.statusCode);
+      const fleetHint =
+        validation.fleetCode || validation.fleetMessage
+          ? [validation.fleetCode, validation.fleetMessage].filter(Boolean).join(" — ")
+          : undefined;
       return reply.status(400).send({
         error: "Invalid Fleet credentials",
         code: "FLEET_VALIDATION_FAILED",
+        step: "fleet_validation",
         fleetStatus: validation.statusCode,
+        fleetCode: validation.fleetCode,
+        fleetMessage: validation.fleetMessage,
+        fleetHint,
         message: humanMessage,
         details: validation.message,
       });

@@ -157,7 +157,9 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
  * Проверка API-ключа: тестовый запрос к Fleet (с retry при 429).
  * clientId — из кабинета (Настройки → API); если не передан, берётся taxi/park/{parkId}.
  */
-export type ValidateFleetResult = { ok: true } | { ok: false; message: string; statusCode: number };
+export type ValidateFleetResult =
+  | { ok: true }
+  | { ok: false; message: string; statusCode: number; rawBody?: string; fleetCode?: string; fleetMessage?: string };
 
 export async function validateFleetCredentials(apiKey: string, parkId: string, clientId?: string): Promise<ValidateFleetResult> {
   const resolvedClientId = (clientId && clientId.trim()) ? clientId.trim() : `taxi/park/${parkId}`;
@@ -175,7 +177,23 @@ export async function validateFleetCredentials(apiKey: string, parkId: string, c
   );
   if (res.ok) return { ok: true };
   const text = await res.text();
-  return { ok: false, message: `Fleet API ${res.status}: ${text.slice(0, 300)}`, statusCode: res.status };
+  let fleetCode: string | undefined;
+  let fleetMessage: string | undefined;
+  try {
+    const json = JSON.parse(text) as { code?: string; message?: string };
+    if (json?.code) fleetCode = String(json.code);
+    if (json?.message) fleetMessage = String(json.message);
+  } catch {
+    /* не JSON */
+  }
+  return {
+    ok: false,
+    message: `Fleet API ${res.status}: ${text.slice(0, 300)}`,
+    statusCode: res.status,
+    rawBody: text.slice(0, 500),
+    fleetCode,
+    fleetMessage,
+  };
 }
 
 /**

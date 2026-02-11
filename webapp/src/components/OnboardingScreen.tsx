@@ -79,19 +79,58 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       const err = e as {
         response?: {
+          status?: number;
           data?: {
             message?: string;
             error?: string;
             code?: string;
+            step?: string;
             fleetStatus?: number;
+            fleetCode?: string;
+            fleetMessage?: string;
+            fleetHint?: string;
+            details?: string;
           };
         };
       };
+      const status = err.response?.status;
       const data = err.response?.data;
+
+      // Нет ответа от сервера (сеть, CORS, таймаут)
+      if (!err.response) {
+        setError(
+          "Нет связи с сервером. Проверьте интернет и откройте мини-приложение из Telegram (не в браузере)."
+        );
+        return;
+      }
+
+      // 401 — не прошла авторизация Telegram (initData)
+      if (status === 401) {
+        const msg =
+          data?.message ??
+          "Не удалось войти. Откройте мини-приложение именно из Telegram (не в браузере) и попробуйте снова.";
+        setError(msg);
+        return;
+      }
+
+      // 400 — ошибка проверки подключения к парку (Fleet)
+      if (status === 400 && data?.code === "FLEET_VALIDATION_FAILED") {
+        const humanMsg = data?.message ?? "Ошибка подключения к парку. Проверьте API-ключ и ID парка.";
+        const fleetStatus = data?.fleetStatus;
+        const fleetHint = data?.fleetHint;
+        const details = data?.details;
+        const parts: string[] = [humanMsg];
+        if (fleetStatus != null) parts.push(`Код ответа Fleet: HTTP ${fleetStatus}`);
+        if (fleetHint) parts.push(`Ответ Яндекс: ${fleetHint}`);
+        if (details) parts.push(`Подробности: ${details}`);
+        setError(parts.join("\n\n"));
+        return;
+      }
+
+      // Любая другая ошибка
       const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ.";
       const details = data?.details;
-      const display = details ? `${msg}\n\nПодробности: ${details}` : msg;
-      setError(display);
+      setError(details ? `${msg}\n\nПодробности: ${details}` : msg);
     } finally {
       setLoading(false);
     }
