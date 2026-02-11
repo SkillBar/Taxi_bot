@@ -235,13 +235,38 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           </div>
 
           <div style={{ marginBottom: 16 }}>
-            <Input
-              header="API-ключ"
-              placeholder="Вставьте API-ключ из кабинета Fleet"
-              value={apiKey}
-              onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
-              disabled={loading}
-            />
+            {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
+              <>
+                <label style={{ display: "block", fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--tg-theme-text-color, #000)" }}>
+                  API-ключ
+                </label>
+                <input
+                  type="text"
+                  placeholder="Вставьте API-ключ из кабинета Fleet"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  disabled={loading}
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    padding: "10px 12px",
+                    fontSize: 16,
+                    border: "1px solid var(--tg-theme-hint-color, #ccc)",
+                    borderRadius: 8,
+                    background: "var(--tg-theme-bg-color, #fff)",
+                    color: "var(--tg-theme-text-color, #000)",
+                  }}
+                />
+              </>
+            ) : (
+              <Input
+                header="API-ключ"
+                placeholder="Вставьте API-ключ из кабинета Fleet"
+                value={apiKey}
+                onChange={(e) => setApiKey((e.target as HTMLInputElement).value)}
+                disabled={loading}
+              />
+            )}
           </div>
           {error && (
             <div
