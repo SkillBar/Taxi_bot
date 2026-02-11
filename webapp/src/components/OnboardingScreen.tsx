@@ -96,10 +96,10 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       const status = err.response?.status;
       const data = err.response?.data;
 
-      // Нет ответа от сервера (сеть, CORS, таймаут)
+      // Нет ответа от сервера (сеть, CORS, неверный URL API, таймаут)
       if (!err.response) {
         setError(
-          "Нет связи с сервером. Проверьте интернет и откройте мини-приложение из Telegram (не в браузере)."
+          "Нет связи с сервером. Проверьте: 1) интернет; 2) откройте приложение из Telegram (не в браузере); 3) при сборке/деплое задан верный адрес API (VITE_API_URL = URL вашего бэкенда)."
         );
         return;
       }
@@ -137,6 +137,12 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   }, [apiKey, onLinked]);
 
   useEffect(() => {
+    // Режим теста из браузера: ?skipContact=1 — сразу экран Fleet (запрос «Подключить» всё равно даст 401 без Telegram)
+    if (typeof window !== "undefined" && window.location.search.includes("skipContact=1")) {
+      setStep("fleet");
+      setContactSent(true);
+      return;
+    }
     getAgentsMe()
       .then((me) => {
         if (me.linked) {
@@ -193,7 +199,12 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           }}
         >
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            {contactSent && (
+            {typeof window !== "undefined" && window.location.search.includes("skipContact=1") && (
+              <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #888)", margin: "0 0 8px" }}>
+                Режим теста из браузера. Для сохранения подключения откройте приложение из Telegram.
+              </p>
+            )}
+            {contactSent && !window.location.search.includes("skipContact=1") && (
               <p style={{ fontSize: 14, color: "var(--tg-theme-button-color, #2481cc)", margin: "0 0 12px", fontWeight: 600 }}>
                 Номер подтверждён.
               </p>
