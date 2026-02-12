@@ -33,16 +33,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     allowedHeaders: ["Content-Type", "x-telegram-init-data", "X-Api-Secret"],
   });
 
-  app.get("/health", async () => ({ ok: true }));
-  app.get("/", async (_req, reply) => {
-    return reply.redirect(302, "/health");
-  });
-
-  // Диагностика: доходит ли запрос из Mini App и с каким Origin (без авторизации). На корне, как /health.
+  // /health и /ping в одном handler — один маршрут, два пути (на Vercel оба должны работать)
+  app.get("/health", async (_req, reply) => reply.send({ ok: true }));
   app.get("/ping", async (req, reply) => {
     const origin = (req.headers.origin as string) || null;
-    const url = (req as { url?: string }).url ?? null;
+    const u = (req as { url?: string }).url;
+    const url = u != null ? u : null;
     return reply.send({ ok: true, origin, url, t: Date.now() });
+  });
+  app.get("/", async (_req, reply) => {
+    return reply.redirect(302, "/health");
   });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });
