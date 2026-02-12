@@ -38,11 +38,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.redirect(302, "/health");
   });
 
-  // Диагностика: доходит ли запрос из Mini App и с каким Origin (без авторизации)
-  app.get("/api/ping", async (req, reply) => {
+  // Диагностика: доходит ли запрос из Mini App и с каким Origin (без авторизации). На корне, как /health.
+  app.get("/ping", async (req, reply) => {
     const origin = (req.headers.origin as string) || null;
-    const url = (req as { url?: string }).url;
-    return reply.send({ ok: true, origin, url: url ?? req.url, t: Date.now() });
+    const url = (req as { url?: string }).url ?? null;
+    return reply.send({ ok: true, origin, url, t: Date.now() });
   });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });

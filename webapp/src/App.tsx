@@ -268,6 +268,9 @@ export default function App() {
             color: "var(--tg-theme-text-color, #000)",
           }}
         >
+          <p style={{ fontSize: 13, color: "var(--tg-theme-hint-color, #666)", marginBottom: 16, fontStyle: "italic" }}>
+            Ведутся технические работы. Приносим извинения за неудобства.
+          </p>
           <p style={{ fontWeight: 600, marginBottom: 8, fontSize: 16 }}>Сбой при загрузке</p>
           <p style={{ fontSize: 14, marginBottom: 4, color: "var(--tg-theme-hint-color, #666)" }}>
             Этап: {initError.stage}
