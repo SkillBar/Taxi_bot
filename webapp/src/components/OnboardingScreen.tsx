@@ -3,6 +3,7 @@ import { AppRoot } from "@telegram-apps/telegram-ui";
 import { Input } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
 import { getManagerMe, connectFleet } from "../lib/api";
+import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage, noConnectionMessage } from "../lib/stages";
 
 declare global {
   interface Window {
@@ -61,10 +62,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   }, []);
 
   const handleConnectFleet = useCallback(async () => {
-    if (typeof console !== "undefined") console.log("[Fleet] Подключить нажато");
-    // Отладка при ?skipContact=1 или ?debug=1: если alert не показывается — клик не доходит до обработчика
-    const showDebugAlert = typeof window !== "undefined" && (window.location.search.includes("skipContact=1") || window.location.search.includes("debug=1"));
-    if (showDebugAlert) window.alert("Кнопка «Подключить» нажата. Дальше идёт запрос к API…");
     const key = apiKey.trim();
     if (!key) {
       setError("Введите API-ключ");
@@ -83,6 +80,8 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       if (res?.success !== false) onLinked();
     } catch (e: unknown) {
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
+      const stage = STAGES.CONNECT_FLEET;
+      const endpoint = ENDPOINTS.CONNECT_FLEET;
       try {
         const err = e as {
           response?: {
@@ -91,10 +90,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               message?: string;
               error?: string;
               code?: string;
-              step?: string;
               fleetStatus?: number;
-              fleetCode?: string;
-              fleetMessage?: string;
               fleetHint?: string;
               details?: string;
             };
@@ -103,26 +99,21 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         const status = err.response?.status;
         const data = err.response?.data;
 
-        // Нет ответа от сервера (сеть, CORS, неверный URL API, таймаут)
         if (!err.response) {
-          setError(
-            "Нет связи с сервером. Проверьте: 1) интернет; 2) откройте приложение из Telegram (не в браузере); 3) при сборке/деплое задан верный адрес API (VITE_API_URL = URL вашего бэкенда)."
-          );
+          setError(formatStageError(stage, endpoint, noConnectionMessage()));
           setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
           return;
         }
 
-        // 401 — не прошла авторизация Telegram (initData)
         if (status === 401) {
           const msg =
             data?.message ??
             "Не удалось войти. Откройте мини-приложение именно из Telegram (не в браузере) и попробуйте снова.";
-          setError(msg);
+          setError(formatStageError(stage, endpoint, msg));
           setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
-        return;
-      }
+          return;
+        }
 
-      // 400 — ошибка проверки подключения к парку (Fleet)
         if (status === 400 && data?.code === "FLEET_VALIDATION_FAILED") {
           const humanMsg = data?.message ?? "Ошибка подключения к парку. Проверьте API-ключ и ID парка.";
           const fleetStatus = data?.fleetStatus;
@@ -132,21 +123,19 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           if (fleetStatus != null) parts.push(`Код ответа Fleet: HTTP ${fleetStatus}`);
           if (fleetHint) parts.push(`Ответ Яндекс: ${fleetHint}`);
           if (details) parts.push(`Подробности: ${details}`);
-        setError(parts.join("\n\n"));
-        setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
-        return;
-      }
+          setError(formatStageError(stage, endpoint, parts.join("\n\n")));
+          setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+          return;
+        }
 
-      // Любая другая ошибка
         const msg = data?.message ?? data?.error ?? "Ошибка подключения. Проверьте API-ключ.";
         const details = data?.details;
-        setError(details ? `${msg}\n\nПодробности: ${details}` : msg);
+        setError(formatStageError(stage, endpoint, details ? `${msg}\n\nПодробности: ${details}` : msg));
         setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
       } catch (inner) {
         const fallbackMsg = inner instanceof Error ? inner.message : String(inner);
-        setError(`Ошибка: ${fallbackMsg}`);
+        setError(formatStageError(stage, endpoint, `Ошибка: ${fallbackMsg}`));
         setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
-        if (typeof console !== "undefined") console.error("[connect-fleet]", inner);
       }
     } finally {
       setLoading(false);
@@ -154,24 +143,32 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   }, [apiKey, onLinked]);
 
   useEffect(() => {
-    // Режим теста из браузера: ?skipContact=1 — сразу экран Fleet (запрос «Подключить» всё равно даст 401 без Telegram)
     if (typeof window !== "undefined" && window.location.search.includes("skipContact=1")) {
       setStep("fleet");
       setContactSent(true);
       return;
     }
+    setError(null);
     getAgentsMe()
       .then((me) => {
         if (me.linked) {
-          getManagerMe().then((m) => {
-            if (m.hasFleet) onLinked();
-            else setStep("fleet");
-          });
+          getManagerMe()
+            .then((m) => {
+              if (m.hasFleet) onLinked();
+              else setStep("fleet");
+            })
+            .catch((e) => {
+              setError(formatStageError(STAGES.MANAGER_ME, ENDPOINTS.MANAGER_ME, buildErrorMessage(e)));
+              setStep("fleet");
+            });
         } else {
           setStep("contact");
         }
       })
-      .catch(() => setStep("contact"));
+      .catch((e) => {
+        setError(formatStageError(STAGES.AGENTS_ME, ENDPOINTS.AGENTS_ME, buildErrorMessage(e)));
+        setStep("contact");
+      });
   }, [onLinked]);
 
   useEffect(() => {

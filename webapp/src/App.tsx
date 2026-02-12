@@ -1,6 +1,7 @@
 import { Component, useState, useEffect } from "react";
 import { getAgentsMe, getCurrentDraft, createDraft, type Draft, type AgentsMe } from "./api";
 import { getManagerMe } from "./lib/api";
+import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "./lib/stages";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { AgentHomeScreen } from "./components/AgentHomeScreen";
 import { SimpleHomeScreen } from "./components/SimpleHomeScreen";
@@ -63,6 +64,7 @@ class UIErrorBoundary extends Component<
 
 type Screen =
   | "init"       // проверка linked
+  | "initError"  // сбой на этапе agents/me или manager/me — показываем этап и «Повторить»
   | "onboarding" // подключение по номеру
   | "home"       // приветствие + список исполнителей + кнопки
   | "loading"
@@ -76,9 +78,13 @@ export default function App() {
   const [draft, setDraft] = useState<Draft | null | "new">(null);
   const [useSimpleUI, setUseSimpleUI] = useState(false);
   const [me, setMe] = useState<AgentsMe | null>(null);
+  const [initError, setInitError] = useState<{ stage: string; endpoint: string; message: string } | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // При загрузке: если привязан как агент и подключён Fleet — главный экран, иначе онбординг. Меняем экран только пока init.
+  // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). При сбое — экран с этапом.
   useEffect(() => {
+    if (screen !== "init") return;
+    setInitError(null);
     getAgentsMe()
       .then((agentMe) => {
         setMe(agentMe);
@@ -92,15 +98,25 @@ export default function App() {
             .then((manager) => {
               setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
             })
-            .catch(() => {
-              setScreen((prev) => (prev === "init" ? "onboarding" : prev));
+            .catch((e) => {
+              setInitError({
+                stage: STAGES.MANAGER_ME,
+                endpoint: ENDPOINTS.MANAGER_ME,
+                message: buildErrorMessage(e),
+              });
+              setScreen((prev) => (prev === "init" ? "initError" : prev));
             });
         }
       })
-      .catch(() => {
-        setScreen((prev) => (prev === "init" ? "onboarding" : prev));
+      .catch((e) => {
+        setInitError({
+          stage: STAGES.AGENTS_ME,
+          endpoint: ENDPOINTS.AGENTS_ME,
+          message: buildErrorMessage(e),
+        });
+        setScreen((prev) => (prev === "init" ? "initError" : prev));
       });
-  }, []);
+  }, [retryCount, screen]);
 
   // Скрыть MainButton на главном экране (на случай перехода с онбординга)
   useEffect(() => {
@@ -239,6 +255,52 @@ export default function App() {
           ))}
 
       </UIErrorBoundary>
+
+      {screen === "initError" && initError && (
+        <div
+          style={{
+            padding: 20,
+            minHeight: "100vh",
+            background: "var(--tg-theme-bg-color, #fff)",
+            color: "var(--tg-theme-text-color, #000)",
+          }}
+        >
+          <p style={{ fontWeight: 600, marginBottom: 8, fontSize: 16 }}>Сбой при загрузке</p>
+          <p style={{ fontSize: 14, marginBottom: 4, color: "var(--tg-theme-hint-color, #666)" }}>
+            Этап: {initError.stage}
+          </p>
+          <p style={{ fontSize: 13, marginBottom: 8, color: "var(--tg-theme-hint-color, #666)" }}>
+            Запрос: {initError.endpoint}
+          </p>
+          <div
+            style={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontSize: 13,
+              padding: 12,
+              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+              borderRadius: 8,
+              marginBottom: 16,
+              border: "1px solid var(--tg-theme-hint-color, #ddd)",
+              maxHeight: 200,
+              overflow: "auto",
+            }}
+          >
+            {initError.message}
+          </div>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setInitError(null);
+              setScreen("init");
+              setRetryCount((c) => c + 1);
+            }}
+          >
+            Повторить
+          </button>
+        </div>
+      )}
 
       {(screen === "init" || screen === "loading") && (
         <div style={{ padding: 20, textAlign: "center", background: "var(--tg-theme-bg-color, #fff)", color: "var(--tg-theme-text-color, #000)" }}>

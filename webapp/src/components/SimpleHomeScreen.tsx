@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import type { AgentsMe } from "../api";
 import { api } from "../lib/api";
+import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
 
 function displayName(me: AgentsMe | null): string {
   if (!me) return "";
@@ -25,14 +26,26 @@ export function SimpleHomeScreen({ user, onRegisterDriver, onRegisterCourier, on
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
   const [driversCount, setDriversCount] = useState<number | null>(null);
+  const [driversLoadError, setDriversLoadError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ drivers: unknown[] }>("/api/manager/drivers").then((r) => setDriversCount((r.data?.drivers?.length ?? 0))).catch(() => setDriversCount(0));
+    setDriversLoadError(null);
+    api
+      .get<{ drivers: unknown[] }>("/api/manager/drivers")
+      .then((r) => {
+        setDriversCount(r.data?.drivers?.length ?? 0);
+      })
+      .catch((e) => {
+        setDriversLoadError(formatStageError(STAGES.MANAGER_DRIVERS, ENDPOINTS.MANAGER_DRIVERS, buildErrorMessage(e)));
+        setDriversCount(0);
+      });
   }, []);
 
   const handleLinkDriver = async () => {
     const phone = newPhone.trim();
     if (!phone) return;
+    setLinkError(null);
     setLinking(true);
     try {
       await api.post("/api/manager/link-driver", { phone });
@@ -41,8 +54,7 @@ export function SimpleHomeScreen({ user, onRegisterDriver, onRegisterCourier, on
       setDriversCount(r.data?.drivers?.length ?? 0);
       alert("Водитель успешно привязан!");
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string; error?: string } } };
-      alert(err.response?.data?.message ?? err.response?.data?.error ?? "Ошибка привязки. Проверьте номер.");
+      setLinkError(formatStageError(STAGES.LINK_DRIVER, ENDPOINTS.LINK_DRIVER, buildErrorMessage(e)));
     } finally {
       setLinking(false);
     }
@@ -62,6 +74,22 @@ export function SimpleHomeScreen({ user, onRegisterDriver, onRegisterCourier, on
           {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
         </p>
       </div>
+
+      {driversLoadError && (
+        <div
+          style={{
+            ...block,
+            border: "1px solid var(--tg-theme-destructive-text-color, #c00)",
+            borderRadius: 8,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontSize: 13,
+            color: "var(--tg-theme-text-color, #000)",
+          }}
+        >
+          {driversLoadError}
+        </div>
+      )}
 
       <div style={block}>
         <p style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600, color: "var(--tg-theme-text-color, #000)" }}>Добавить водителя</p>
@@ -83,6 +111,11 @@ export function SimpleHomeScreen({ user, onRegisterDriver, onRegisterCourier, on
         <button type="button" className="primary" onClick={handleLinkDriver} disabled={linking} style={{ width: "100%" }}>
           {linking ? "Поиск…" : "Найти и привязать"}
         </button>
+        {linkError && (
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {linkError}
+          </p>
+        )}
         {driversCount != null && (
           <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--tg-theme-hint-color, #666)" }}>
             Водителей привязано: {driversCount}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
 import {
   List,
   Section,
@@ -25,20 +26,20 @@ export interface Driver {
 export function ManagerDashboard() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
 
   const fetchDrivers = async () => {
+    setLoadError(null);
     try {
       const res = await api.get<{ drivers: Driver[] }>("/api/manager/drivers");
       setDrivers(res.data.drivers ?? []);
     } catch (e) {
-      console.error("Ошибка загрузки водителей", e);
-      const msg =
-        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        "Не удалось загрузить список";
-      alert(msg);
+      setLoadError(formatStageError(STAGES.MANAGER_DRIVERS, ENDPOINTS.MANAGER_DRIVERS, buildErrorMessage(e)));
+      setDrivers([]);
     } finally {
       setLoading(false);
     }
@@ -51,6 +52,7 @@ export function ManagerDashboard() {
   const handleLinkDriver = async () => {
     const phone = newPhone.trim();
     if (!phone) return;
+    setLinkError(null);
     setLinking(true);
     try {
       await api.post("/api/manager/link-driver", { phone });
@@ -58,10 +60,7 @@ export function ManagerDashboard() {
       await fetchDrivers();
       alert("Водитель успешно привязан!");
     } catch (e: unknown) {
-      console.error(e);
-      const err = e as { response?: { data?: { error?: string; message?: string } } };
-      const msg = err.response?.data?.message ?? err.response?.data?.error ?? "Ошибка привязки. Проверьте номер.";
-      alert(msg);
+      setLinkError(formatStageError(STAGES.LINK_DRIVER, ENDPOINTS.LINK_DRIVER, buildErrorMessage(e)));
     } finally {
       setLinking(false);
     }
@@ -71,6 +70,31 @@ export function ManagerDashboard() {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
         <Spinner size="l" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: 16 }}>
+        <div
+          style={{
+            padding: 12,
+            background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+            borderRadius: 8,
+            border: "1px solid var(--tg-theme-destructive-text-color, #c00)",
+            color: "var(--tg-theme-text-color, #000)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontSize: 13,
+            marginBottom: 12,
+          }}
+        >
+          {loadError}
+        </div>
+        <Button size="l" stretched onClick={() => { setLoading(true); fetchDrivers(); }}>
+          Повторить
+        </Button>
       </div>
     );
   }
@@ -100,6 +124,19 @@ export function ManagerDashboard() {
           <Button size="l" stretched onClick={handleLinkDriver} loading={linking}>
             Найти и привязать
           </Button>
+          {linkError && (
+            <p
+              style={{
+                marginTop: 12,
+                fontSize: 13,
+                color: "var(--tg-theme-destructive-text-color, #c00)",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {linkError}
+            </p>
+          )}
         </div>
       </Section>
 

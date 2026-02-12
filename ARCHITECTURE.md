@@ -22,21 +22,34 @@
 │       ├── config.ts       # port, host, env (DATABASE_URL, DIRECT_URL, AGENT_CHECK_URL…)
 │       ├── db.ts           # Prisma client
 │       ├── routes/
-│       │   ├── agent.ts    # GET /api/agents/check?phone, POST /api/agents/link (telegramUserId)
+│       │   ├── agent.ts    # Агенты: check, me, link, link-from-bot
 │       │   ├── draft.ts    # CRUD черновиков регистрации
 │       │   ├── executor-tariffs.ts
-│       │   └── stats.ts
+│       │   ├── manager.ts  # Менеджер/Fleet: me, drivers, link-driver, connect-fleet
+│       │   ├── stats.ts
+│       │   └── yandex-oauth.ts # OAuth для водителей
 │       └── lib/
-├── webapp/                 # Mini App (отдельный проект Vercel, сборка из корня или Root: webapp)
+│           ├── telegram.ts # Валидация initData
+│           └── yandex-fleet.ts # Fleet API: парки, водители, валидация ключа
+├── webapp/                 # Mini App (отдельный проект Vercel, Root: webapp)
 │   ├── index.html
 │   ├── package.json        # React 18, Vite 5, react-router-dom
+│   ├── public/
+│   │   └── test-api.html   # Страница проверки связи с API (без Telegram)
 │   ├── vite.config.ts
 │   └── src/
 │       ├── main.tsx        # React root, Telegram WebApp ready()
-│       ├── App.tsx         # Экраны: welcome → выбор driver/courier → getCurrentDraft/createDraft → RegistrationFlow
+│       ├── App.tsx         # Роутинг: онбординг → главный экран → регистрация/менеджер
+│       ├── api.ts          # Базовый fetch к VITE_API_URL
+│       ├── lib/api.ts      # API-клиент: agents, manager, drafts
+│       ├── telegramWebApp.ts
 │       ├── RegistrationFlow.tsx  # Многошаговая форма регистрации
-│       ├── api.ts          # fetch к VITE_API_URL (api/agents, api/drafts)
-│       └── telegramWebApp.ts # Обёртка над window.Telegram.WebApp
+│       └── components/
+│           ├── OnboardingScreen.tsx  # Контакт + подключение Fleet (API-ключ)
+│           ├── SimpleHomeScreen.tsx  # Главный экран агента (список водителей, добавить)
+│           ├── AgentHomeScreen.tsx   # Альтернативный главный экран
+│           ├── ManagerDashboard.tsx  # Кабинет менеджера
+│           └── DriverDetails.tsx     # Карточка водителя
 ├── bot/                    # Telegram-бот (задеплоен, напр. Railway)
 │   ├── package.json        # Grammy, dotenv
 │   └── src/
@@ -55,7 +68,7 @@
 - **Стек:** Node.js, **Fastify 4**, **Prisma 5**, PostgreSQL (Neon). TypeScript, ESM (`"type": "module"`).
 - **Сборка:** `npm run build` → `mkdir -p public && rm -rf dist && tsc --outDir ./_dist`. Исходники в `api/src/`, артефакты в `api/_dist/`. Папка `_dist` — чтобы Vercel не сканировал её как отдельные serverless-функции.
 - **Точка входа на Vercel:** `api/index.js` (не из `_dist`). Это обычный JS-файл: `import app from "./_dist/index.js"`, `export default async function handler(req, res) { await app.ready(); app.server.emit("request", req, res); }`. Vercel вызывает эту функцию; Fastify обрабатывает запрос.
-- **Маршруты:** `/health`, `/api/agents/*` (в т.ч. `GET /me` — имя + linked, `POST /link` — привязка по телефону из Mini App, initData в заголовке; `POST /link-from-bot` — привязка по контакту из бота, заголовок `X-Api-Secret`, body `{ phone, telegramUserId }`), `/api/drafts/*`, `/api/manager/*` (при настроенном Yandex Fleet: `GET /me`, `GET /drivers`, `POST /link-driver`), `/api/executor-tariffs/*`, `/api/stats/*`. CORS включён.
+- **Маршруты:** `/health`; `/api/agents/*` (check, me, link, link-from-bot); `/api/drafts/*`; `/api/manager/*` (me, drivers, link-driver, **POST connect-fleet** — сохранение API-ключа Fleet и parkId); `/api/executor-tariffs/*`; `/api/stats/*`; `/api/yandex-oauth/*`. CORS включён.
 - **Данные:** Prisma, схема в `api/prisma/schema.prisma`. Для Neon: `DATABASE_URL` (pooled), `DIRECT_URL` (direct, для миграций). Опционально: внешняя проверка агента (`AGENT_CHECK_URL`).
 - **Деплой:** Отдельный проект Vercel, **Root Directory: `api`**. Build/Install команды задаются в Project Settings (не в `api/vercel.json`). Output Directory: `public` (пустая папка создаётся в build). В `api/vercel.json` только `rewrites`, без `builds`.
 
@@ -66,10 +79,10 @@
 - **Стек:** **React 18**, **Vite 5**, TypeScript. Одна страница (SPA), роутинг при необходимости через react-router-dom.
 - **Вход:** `index.html` → `main.tsx` → `App.tsx`. В `main.tsx` вызывается `Telegram.WebApp.ready()`.
 - **Логика:**
-  1. **Онбординг:** при первом входе — `GET /api/agents/me`; если `linked: false` — экран «Добро пожаловать в кабинет агента такси!» + MainButton «Подтвердить номер». По нажатию вызывается `Telegram.WebApp.requestContact(callback)`. Пользователь делится контактом в нативном попапе → **бот** получает контакт (message:contact) и вызывает `POST /api/agents/link-from-bot` (X-Api-Secret + phone + telegramUserId). Mini App при `callback(true)` опрашивает `GET /api/agents/me` до `linked: true`, затем переход на главный экран.
-  2. **Главный экран (AgentHomeScreen):** приветствие «{Имя}, добро пожаловать в кабинет агента такси!», блок «Исполнители» — список из `GET /api/manager/drivers` (initData в заголовке; API по telegramId создаёт/находит Manager, возвращает DriverLink из БД + статусы из Yandex Fleet). Если список пуст — «Исполнители не найдены». Ниже: добавление водителя по телефону, кнопки «Зарегистрировать водителя», «Регистрация доставка/курьер», «Кабинет менеджера».
-  3. **Регистрация:** выбор «Водитель» / «Доставка/курьер» → `getCurrentDraft()` / `createDraft(type)` → многошаговая форма в `RegistrationFlow.tsx`.
-- Все запросы к бэкенду идут через `src/api.ts` и `src/lib/api.ts` (axios с `x-telegram-init-data`) на базовый URL из `import.meta.env.VITE_API_URL`.
+  1. **Онбординг (OnboardingScreen):** `GET /api/agents/me` → при `linked: false` шаг «Подтвердить номер» (requestContact → бот линкует через link-from-bot → опрос me до linked). Затем `GET /api/manager/me`: при `hasFleet: false` шаг «Подключите Fleet» — ввод API-ключа → **POST /api/manager/connect-fleet**; при успехе переход на главный экран.
+  2. **Главный экран (SimpleHomeScreen):** приветствие, список исполнителей из `GET /api/manager/drivers`, добавление водителя по телефону (`POST /api/manager/link-driver`), кнопки «Зарегистрировать водителя», «Регистрация доставка/курьер», «Кабинет менеджера».
+  3. **Регистрация:** выбор типа → getCurrentDraft/createDraft → многошаговая форма в `RegistrationFlow.tsx`.
+- Запросы к API: `src/api.ts` (базовый URL из `VITE_API_URL`) и `src/lib/api.ts` (axios с `x-telegram-init-data`).
 - **Сборка:** `npm run build` в папке webapp → `vite build`, выход в `webapp/dist`.
 - **Деплой:** Отдельный проект Vercel (или корень с настройками в корневом `vercel.json`): buildCommand/outputDirectory указывают на webapp. В Production переменные задают `VITE_API_URL` = URL API-проекта.
 
@@ -123,4 +136,21 @@
 
 ---
 
-Итого: **API** — Fastify + Prisma на Vercel (serverless, entry `api/index.js` → `_dist`). **Webapp** — React + Vite на Vercel, ходит в API по `VITE_API_URL`, уже протестирован. **Bot** — Grammy, задеплоен (напр. Railway), открывает WebApp и при необходимости дергает API.
+## 7. Документация и скрипты
+
+| Путь | Назначение |
+|------|------------|
+| **docs/DEBUG_FLOW.md** | Отладка онбординга и Fleet (шаги, типичные ошибки). |
+| **docs/DEPLOY_SERVER.md** | Деплой API/бота на свой сервер (не Vercel). |
+| **docs/PREFLIGHT_CHECK.md** | Чеклист перед деплоем (переменные, URL). |
+| **docs/YANDEX_FLEET_ОТВЕТ.md** | Ответы Fleet API и коды ошибок (русский текст). |
+| **docs/YANDEX_OAUTH_DRIVER.md** | OAuth для водителей (Яндекс). |
+| **VERCEL_DEPLOY.md**, **VERCEL_API_DEPLOY.md** | Деплой WebApp и API на Vercel. |
+| **NEON_DEPLOY.md**, **POSTGRES_SETUP.md** | БД: Neon и локальный PostgreSQL. |
+| **scripts/check-keys-before-deploy.mjs** | Проверка env перед деплоем (API, Bot, Webapp). |
+| **scripts/test-fleet-key.mjs** | Проверка API-ключа Fleet (parks/info, parks/list, drivers). |
+| **webapp/public/test-api.html** | Страница проверки связи с API (открыть после деплоя webapp). |
+
+---
+
+Итого: **API** — Fastify + Prisma на Vercel (serverless, entry `api/index.js` → `_dist`). **Webapp** — React + Vite на Vercel, ходит в API по `VITE_API_URL`. **Bot** — Grammy (напр. Railway), открывает WebApp и дергает API для link-from-bot.

@@ -12,6 +12,7 @@ import {
 } from "@telegram-apps/telegram-ui";
 import { api, getYandexOAuthAuthorizeUrl } from "../lib/api";
 import { getAgentsMe, type AgentsMe } from "../api";
+import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
 import { DriverDetails } from "./DriverDetails";
 import type { Driver } from "./ManagerDashboard";
 
@@ -42,6 +43,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
+  const [driversLoadError, setDriversLoadError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [yandexOAuthLoading, setYandexOAuthLoading] = useState(false);
   const [yandexOAuthError, setYandexOAuthError] = useState<string | null>(null);
 
@@ -52,12 +55,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   }, []);
 
   const fetchDrivers = async () => {
+    setDriversLoadError(null);
     setDriversLoading(true);
     try {
       const res = await api.get<{ drivers?: Driver[] }>("/api/manager/drivers");
       const list = res?.data?.drivers;
       setDrivers(Array.isArray(list) ? list : []);
-    } catch {
+    } catch (e) {
+      setDriversLoadError(formatStageError(STAGES.MANAGER_DRIVERS, ENDPOINTS.MANAGER_DRIVERS, buildErrorMessage(e)));
       setDrivers([]);
     } finally {
       setDriversLoading(false);
@@ -89,6 +94,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const handleLinkDriver = async () => {
     const phone = newPhone.trim();
     if (!phone) return;
+    setLinkError(null);
     setLinking(true);
     try {
       await api.post("/api/manager/link-driver", { phone });
@@ -96,8 +102,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       await fetchDrivers();
       alert("Водитель успешно привязан!");
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string; error?: string } } };
-      alert(err.response?.data?.message ?? err.response?.data?.error ?? "Ошибка привязки. Проверьте номер.");
+      setLinkError(formatStageError(STAGES.LINK_DRIVER, ENDPOINTS.LINK_DRIVER, buildErrorMessage(e)));
     } finally {
       setLinking(false);
     }
@@ -140,6 +145,24 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
           </p>
         </div>
+
+        {driversLoadError && (
+          <div
+            style={{
+              margin: 16,
+              padding: 12,
+              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+              borderRadius: 8,
+              border: "1px solid var(--tg-theme-destructive-text-color, #c00)",
+              color: "var(--tg-theme-text-color, #000)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontSize: 13,
+            }}
+          >
+            {driversLoadError}
+          </div>
+        )}
 
         <List>
           <Section header="Исполнители">
@@ -186,6 +209,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Button size="l" stretched onClick={handleLinkDriver} loading={linking}>
                 Найти и привязать
               </Button>
+              {linkError && (
+                <p style={{ marginTop: 12, fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {linkError}
+                </p>
+              )}
             </div>
           </Section>
 
