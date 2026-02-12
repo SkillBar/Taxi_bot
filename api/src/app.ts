@@ -18,8 +18,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
-    // Разрешаем любой origin (для dev и Mini App из Telegram). В проде можно задать WEBAPP_ORIGIN.
-    origin: process.env.WEBAPP_ORIGIN || true,
+    origin: (origin, cb) => {
+      // Нет Origin (например запрос из приложения/Postman) — разрешаем
+      if (!origin) return cb(null, true);
+      // Явно заданный список или один origin из env
+      const allowed = process.env.WEBAPP_ORIGIN
+        ? process.env.WEBAPP_ORIGIN.split(",").map((o) => o.trim())
+        : [];
+      if (allowed.length > 0 && allowed.includes(origin)) return cb(null, true);
+      // Иначе разрешаем любой (dev и Mini App из Telegram)
+      return cb(null, true);
+    },
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "x-telegram-init-data", "X-Api-Secret"],
   });
 
   app.get("/health", async () => ({ ok: true }));

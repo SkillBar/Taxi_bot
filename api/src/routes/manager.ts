@@ -20,7 +20,7 @@ async function requireManager(req: FastifyRequest, reply: FastifyReply) {
       message: "Откройте приложение из Telegram — заголовок авторизации не передан.",
     });
   }
-  if (!validateInitData(initData, config.botToken)) {
+  if (!validateInitData(initData, config.botToken, 86400)) {
     return reply.status(401).send({
       error: "Invalid initData",
       message: "Неверная или устаревшая подпись. Перезапустите Mini App из Telegram.",

@@ -5,7 +5,7 @@ import { validateInitData, parseInitData } from "../lib/telegram.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken)) {
+  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
   const { user } = parseInitData(initData);

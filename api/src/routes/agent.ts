@@ -5,7 +5,7 @@ import { config } from "../config.js";
 
 async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken)) {
+  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
     return reply.status(401).send({ error: "Invalid or missing initData" });
   }
   const { user } = parseInitData(initData);
@@ -17,7 +17,7 @@ export async function agentRoutes(app: FastifyInstance) {
   // Текущий пользователь из initData (имя + привязка к агенту)
   app.get("/me", async (req, reply) => {
     const initData = (req.headers["x-telegram-init-data"] as string) || "";
-    if (!initData || !validateInitData(initData, config.botToken)) {
+    if (!initData || !validateInitData(initData, config.botToken, 86400)) {
       app.log.info({ step: "agents/me", result: "initData_invalid" });
       return reply.status(401).send({ error: "Invalid or missing initData" });
     }
@@ -123,7 +123,7 @@ export async function agentRoutes(app: FastifyInstance) {
     Body: { phone: string };
   }>("/link", async (req, reply) => {
     const initData = (req.headers["x-telegram-init-data"] as string) || "";
-    if (!initData || !validateInitData(initData, config.botToken)) {
+    if (!initData || !validateInitData(initData, config.botToken, 86400)) {
       return reply.status(401).send({ error: "Invalid or missing initData" });
     }
     const { user } = parseInitData(initData);
@@ -163,15 +163,22 @@ export async function agentRoutes(app: FastifyInstance) {
     });
   });
 
-  // Save Yandex email
+  // Save Yandex email (только свой аккаунт — по initData)
   app.patch<{
     Params: { agentId: string };
     Body: { yandexEmail: string };
-  }>("/:agentId/email", async (req, reply) => {
+  }>("/:agentId/email", {
+    preHandler: authFromInitData,
+  }, async (req, reply) => {
+    const telegramUserId = String((req as any).telegramUserId);
     const { agentId } = req.params;
     const yandexEmail = (req.body as any)?.yandexEmail;
     if (typeof yandexEmail !== "string" || !/^[^\s@]+@(yandex\.ru|ya\.ru|yandex\.com|yandex\.by|yandex\.kz)$/i.test(yandexEmail))
       return reply.status(400).send({ error: "Valid yandex email required" });
+
+    const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+    if (!agent || agent.telegramUserId !== telegramUserId)
+      return reply.status(403).send({ error: "Forbidden", message: "Можно изменить только свой аккаунт." });
 
     await prisma.agent.update({
       where: { id: agentId },
