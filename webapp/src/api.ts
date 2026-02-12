@@ -40,6 +40,13 @@ export type AgentsMe = {
   linked: boolean;
 };
 
+/** Диагностика: проверка доходимости до API и CORS (без initData). */
+export async function getApiPing(): Promise<{ ok: boolean; origin?: string | null; url?: string; t?: number }> {
+  const res = await fetchWithTimeout(`${API_URL}/api/ping`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 export async function getAgentsMe(): Promise<AgentsMe> {
   const res = await fetchWithTimeout(`${API_URL}/api/agents/me`, { headers: headers() });
   if (!res.ok) throw new Error(await res.text());

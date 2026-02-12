@@ -1,5 +1,5 @@
 import { Component, useState, useEffect } from "react";
-import { getAgentsMe, getCurrentDraft, createDraft, type Draft, type AgentsMe } from "./api";
+import { getAgentsMe, getApiPing, getCurrentDraft, createDraft, type Draft, type AgentsMe } from "./api";
 import { getManagerMe } from "./lib/api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "./lib/stages";
 import { OnboardingScreen } from "./components/OnboardingScreen";
@@ -81,6 +81,7 @@ export default function App() {
   const [initError, setInitError] = useState<{ stage: string; endpoint: string; message: string } | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [initRetrying, setInitRetrying] = useState(false);
+  const [pingResult, setPingResult] = useState<string | null>(null);
 
   // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). При сбое — экран с этапом.
   useEffect(() => {
@@ -293,14 +294,35 @@ export default function App() {
           <button
             type="button"
             className="primary"
+            disabled={initRetrying}
             onClick={() => {
               setInitError(null);
+              setInitRetrying(true);
               setScreen("init");
               setRetryCount((c) => c + 1);
             }}
           >
-            Повторить
+            {initRetrying ? "Повторная попытка…" : "Повторить"}
           </button>
+          <p style={{ marginTop: 12, fontSize: 12, color: "var(--tg-theme-hint-color, #666)" }}>
+            Если долго «Загрузка…» и тишина — запрос не доходит (таймаут 20 сек). Откройте приложение из Telegram.
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              setPingResult(null);
+              getApiPing()
+                .then((r) => setPingResult(`Ping OK. Origin: ${r.origin ?? "(нет)"}, url: ${r.url ?? "-"}`))
+                .catch((e) => setPingResult(`Ping ошибка: ${e instanceof Error ? e.message : String(e)}`));
+            }}
+          >
+            Проверить связь (ping)
+          </button>
+          {pingResult != null && (
+            <p style={{ marginTop: 8, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{pingResult}</p>
+          )}
         </div>
       )}
 
