@@ -89,7 +89,8 @@ export async function managerRoutes(app: FastifyInstance) {
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
     if (!parkId) {
       app.log.info({ step: "connect-fleet", message: "Пытаюсь определить parkId по ключу" });
-      parkId = (await tryDiscoverParkId(apiKey)) ?? "";
+      const discovered = await tryDiscoverParkId(apiKey);
+      parkId = discovered != null ? discovered : "";
       if (!parkId) {
         app.log.warn({ step: "connect-fleet", message: "Не удалось определить parkId по ключу" });
         return reply.status(400).send({

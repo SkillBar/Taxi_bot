@@ -30,7 +30,7 @@ export async function agentRoutes(app: FastifyInstance) {
       where: { telegramUserId: String(user.id) },
     });
     const linked = Boolean(agent?.isActive);
-    app.log.info({ step: "agents/me", telegramUserId: user.id, linked, agentId: agent?.id ?? null });
+    app.log.info({ step: "agents/me", telegramUserId: user.id, linked, agentId: agent?.id != null ? agent.id : null });
     return reply.send({
       telegramUserId: user.id,
       firstName: user.first_name != null ? user.first_name : null,

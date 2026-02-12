@@ -33,7 +33,7 @@ async function fetchWithRetry(
     }
   }
   if (lastRes != null) return lastRes;
-  throw lastErr ?? new Error("Fleet request failed");
+  throw lastErr != null ? lastErr : new Error("Fleet request failed");
 }
 
 /** Человекочитаемое сообщение по коду ответа Fleet API. */
@@ -113,7 +113,7 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
     });
     if (resInfo.ok) {
       const data = (await resInfo.json()) as { park?: { id?: string }; parks?: Array<{ id?: string }> };
-      const id = data?.park?.id ?? data?.parks?.[0]?.id;
+      const id = data?.park?.id != null ? data.park!.id : data?.parks?.[0]?.id;
       if (typeof id === "string" && id.length > 0) return id;
     }
   } catch {
@@ -195,7 +195,10 @@ function parsePhoneFromPhones(phones: unknown): string | null {
   if (Array.isArray(phones) && phones.length > 0) {
     const first = phones[0];
     if (typeof first === "string") return first;
-    if (first != null && typeof first === "object" && "number" in first) return String((first as { number?: string }).number ?? "");
+    if (first != null && typeof first === "object" && "number" in first) {
+      const num = (first as { number?: string }).number;
+      return String(num != null ? num : "");
+    }
   }
   return null;
 }
