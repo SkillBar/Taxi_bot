@@ -80,6 +80,7 @@ export default function App() {
   const [me, setMe] = useState<AgentsMe | null>(null);
   const [initError, setInitError] = useState<{ stage: string; endpoint: string; message: string } | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [initRetrying, setInitRetrying] = useState(false);
 
   // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). При сбое — экран с этапом.
   useEffect(() => {
@@ -115,7 +116,8 @@ export default function App() {
           message: buildErrorMessage(e),
         });
         setScreen((prev) => (prev === "init" ? "initError" : prev));
-      });
+      })
+      .finally(() => setInitRetrying(false));
   }, [retryCount, screen]);
 
   // Скрыть MainButton на главном экране (на случай перехода с онбординга)
@@ -304,7 +306,7 @@ export default function App() {
 
       {(screen === "init" || screen === "loading") && (
         <div style={{ padding: 20, textAlign: "center", background: "var(--tg-theme-bg-color, #fff)", color: "var(--tg-theme-text-color, #000)" }}>
-          Загрузка…
+          {initRetrying ? "Повторная попытка…" : "Загрузка…"}
         </div>
       )}
 
