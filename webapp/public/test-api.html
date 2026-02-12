@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Проверка связи с API</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 24px auto; padding: 0 16px; }
+    input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 14px; margin-bottom: 12px; }
+    button { padding: 12px 24px; font-size: 16px; cursor: pointer; background: #2481cc; color: #fff; border: none; border-radius: 8px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .result { margin-top: 16px; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+    .ok { background: #e8f5e9; color: #1b5e20; }
+    .err { background: #ffebee; color: #c62828; }
+    label { display: block; margin-bottom: 4px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Проверка связи с API</h1>
+  <p>Локальный тест. Укажи URL API и нажми «Проверить связь».</p>
+  <label for="apiUrl">URL API (без слэша в конце):</label>
+  <input id="apiUrl" type="text" value="https://taxi-botapi.vercel.app" placeholder="https://taxi-botapi.vercel.app или http://localhost:3001" />
+  <button id="btn" type="button">Проверить связь</button>
+  <div id="out"></div>
+
+  <script>
+    const apiUrl = document.getElementById("apiUrl");
+    const btn = document.getElementById("btn");
+    const out = document.getElementById("out");
+
+    function show(msg, isError) {
+      out.className = "result " + (isError ? "err" : "ok");
+      out.textContent = msg;
+    }
+
+    btn.addEventListener("click", async () => {
+      const base = apiUrl.value.trim().replace(/\/+$/, "");
+      if (!base) {
+        show("Введи URL API", true);
+        return;
+      }
+      btn.disabled = true;
+      show("Запрос к " + base + "/health …");
+
+      try {
+        const r = await fetch(base + "/health", { method: "GET" });
+        const text = await r.text();
+        if (r.ok) {
+          let data = text;
+          try { data = JSON.parse(text); } catch (_) {}
+          show("Связь с API есть.\n\nGET /health\nСтатус: " + r.status + "\nОтвет: " + JSON.stringify(data, null, 2));
+        } else {
+          show("Ответ не 200.\n\nСтатус: " + r.status + "\nТело: " + text.slice(0, 300), true);
+        }
+      } catch (e) {
+        show("Ошибка: " + (e.message || String(e)) + "\n\nПроверь интернет и что API доступен по указанному URL.", true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

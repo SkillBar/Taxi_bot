@@ -23,6 +23,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.get("/health", async () => ({ ok: true }));
+  app.get("/", async (_req, reply) => {
+    return reply.redirect(302, "/health");
+  });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });
   await app.register(draftRoutes, { prefix: "/api/drafts" });
