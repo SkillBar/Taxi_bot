@@ -10,8 +10,7 @@ import { requireBotSecret } from "../lib/auth.js";
 import { linkAgentByTelegramId } from "../services/agent-link.js";
 
 export async function botRoutes(app: FastifyInstance) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  app.addHook("preHandler", requireBotSecret as any);
+  app.addHook("preHandler", requireBotSecret);
 
   /**
    * POST /api/bot/manager/set-phone

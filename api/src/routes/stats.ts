@@ -10,17 +10,15 @@ interface RequestWithOptionalAgentId extends RequestWithTelegram {
 
 async function requireInitDataOrBotSecret(
   req: FastifyRequest,
-  reply: Parameters<typeof requireInitData>[1],
-  next: (err?: Error) => void
+  reply: Parameters<typeof requireInitData>[1]
 ): Promise<void> {
   const secret = (req.headers["x-api-secret"] as string) || "";
   const agentId = (req.query as { agentId?: string }).agentId;
   if (config.apiSecret && secret === config.apiSecret && agentId) {
     (req as RequestWithOptionalAgentId).agentIdFromSecret = agentId;
-    next();
     return;
   }
-  await requireInitData(req, reply, next);
+  await requireInitData(req, reply);
 }
 
 export async function statsRoutes(app: FastifyInstance) {

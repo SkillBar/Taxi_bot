@@ -22,12 +22,8 @@ export interface RequestWithTelegram extends FastifyRequest {
   telegramUser?: TelegramUser;
 }
 
-/** PreHandler: проверяет initData, вешает telegramUserId и telegramUser на req. Вызвать next() при успехе. */
-export async function requireInitData(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  next: (err?: Error) => void
-): Promise<void> {
+/** PreHandler (async): проверяет initData, вешает telegramUserId и telegramUser на req. При успехе просто return. */
+export async function requireInitData(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData) {
     reply.status(401).send({
@@ -50,20 +46,14 @@ export async function requireInitData(
   }
   (req as RequestWithTelegram).telegramUserId = user.id;
   (req as RequestWithTelegram).telegramUser = user as TelegramUser;
-  next();
 }
 
-/** PreHandler: проверяет X-Api-Secret (вызовы от бота). */
-export async function requireBotSecret(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  next: (err?: Error) => void
-): Promise<void> {
+/** PreHandler (async): проверяет X-Api-Secret (вызовы от бота). При успехе просто return. */
+export async function requireBotSecret(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const secret = (req.headers["x-api-secret"] as string) || "";
   if (!config.apiSecret || secret !== config.apiSecret) {
     req.log.warn({ auth: "requireBotSecret", result: "invalid" });
     reply.status(401).send({ error: "Invalid or missing X-Api-Secret" });
     return;
   }
-  next();
 }

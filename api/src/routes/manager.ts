@@ -12,27 +12,26 @@ import {
   type FleetCredentials,
 } from "../lib/yandex-fleet.js";
 
-async function requireManager(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  next: (err?: Error) => void
-) {
+async function requireManager(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData) {
-    return reply.status(401).send({
+    reply.status(401).send({
       error: "Missing x-telegram-init-data",
       message: "Откройте приложение из Telegram — заголовок авторизации не передан.",
     });
+    return;
   }
   if (!validateInitData(initData, config.botToken, 86400)) {
-    return reply.status(401).send({
+    reply.status(401).send({
       error: "Invalid initData",
       message: "Неверная или устаревшая подпись. Перезапустите Mini App из Telegram.",
     });
+    return;
   }
   const { user } = parseInitData(initData);
   if (!user?.id) {
-    return reply.status(401).send({ error: "User not in initData", message: "В initData отсутствует user." });
+    reply.status(401).send({ error: "User not in initData", message: "В initData отсутствует user." });
+    return;
   }
   (req as FastifyRequest & { telegramUserId?: number; telegramUser?: { first_name?: string; last_name?: string } }).telegramUserId = user.id;
   (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser = user;
@@ -72,7 +71,6 @@ async function requireManager(
     }
   }
   (req as FastifyRequest & { managerId?: string }).managerId = manager.id;
-  next();
 }
 
 function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId: string | null; yandexClientId: string | null }): FleetCredentials | null {
@@ -81,8 +79,7 @@ function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId:
 }
 
 export async function managerRoutes(app: FastifyInstance) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  app.addHook("preHandler", requireManager as any);
+  app.addHook("preHandler", requireManager);
 
   /**
    * GET /api/manager/me
