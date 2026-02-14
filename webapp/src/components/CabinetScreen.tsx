@@ -35,7 +35,7 @@ export function CabinetScreen({ onSupport, onLogout }: CabinetScreenProps) {
           background: "var(--tg-theme-bg-color, #fff)",
           color: "var(--tg-theme-text-color, #000)",
           padding: 24,
-          paddingBottom: 140,
+          paddingBottom: 80,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -75,20 +75,7 @@ export function CabinetScreen({ onSupport, onLogout }: CabinetScreenProps) {
           </p>
         </div>
 
-        <div
-          style={{
-            position: "fixed",
-            bottom: 56,
-            left: 0,
-            right: 0,
-            padding: "16px 24px",
-            background: "var(--tg-theme-bg-color, #fff)",
-            borderTop: "1px solid var(--tg-theme-hint-color, #eee)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
+        <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 12, marginTop: 24 }}>
           <button
             type="button"
             className="secondary"

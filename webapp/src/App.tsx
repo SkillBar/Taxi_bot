@@ -121,6 +121,12 @@ export default function App() {
   const [initRetrying, setInitRetrying] = useState(false);
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"main" | "cabinet">("main");
+  const [isLightTheme, setIsLightTheme] = useState(false);
+
+  useEffect(() => {
+    const scheme = typeof window !== "undefined" ? window.Telegram?.WebApp?.colorScheme : undefined;
+    setIsLightTheme(scheme === "light");
+  }, []);
 
   // При загрузке: ждём initData (TG отдаёт его асинхронно), затем agents/me → при linked проверка manager/me. При 401 и wasLinked — повтор до 2 раз (initData мог подтянуться позже).
   useEffect(() => {
@@ -129,7 +135,7 @@ export default function App() {
     const wasLinked = typeof window !== "undefined" && localStorage.getItem(STORAGE_LINKED_KEY) === "1";
     if (wasLinked) setScreen("home");
 
-    let retriesLeft = 2;
+    let retriesLeft = 5;
     function runInit() {
       waitForInitData(3000)
         .then(() => getAgentsMe())
@@ -160,10 +166,11 @@ export default function App() {
           const status = (e as { status?: number }).status;
           if (status === 401 && wasLinked && retriesLeft > 0) {
             retriesLeft -= 1;
-            setTimeout(runInit, 500);
+            setTimeout(runInit, 800);
             return;
           }
-          setLinkedPersist(false);
+          // Не сбрасываем agent_linked при 401 (закрыли/переоткрыли приложение) — только при явном «Выйти» или 200 с linked: false
+          if (status !== 401) setLinkedPersist(false);
           setInitError({
             stage: STAGES.AGENTS_ME,
             endpoint: ENDPOINTS.AGENTS_ME,
@@ -350,8 +357,8 @@ export default function App() {
                 left: 0,
                 right: 0,
                 display: "flex",
-                background: "#2a2a2e",
-                borderTop: "1px solid rgba(255,255,255,0.06)",
+                background: isLightTheme ? "#e5e5ea" : "#2a2a2e",
+                borderTop: isLightTheme ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.06)",
                 paddingBottom: "env(safe-area-inset-bottom, 0px)",
                 zIndex: 100,
               }}
@@ -366,7 +373,7 @@ export default function App() {
                   padding: "10px 8px",
                   fontSize: 12,
                   fontWeight: activeTab === "main" ? 600 : 400,
-                  color: activeTab === "main" ? "var(--tg-theme-button-color, #0a84ff)" : "rgba(255,255,255,0.7)",
+                  color: activeTab === "main" ? "var(--tg-theme-button-color, #0a84ff)" : isLightTheme ? "#6c6c70" : "rgba(255,255,255,0.7)",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
@@ -395,7 +402,7 @@ export default function App() {
                   padding: "10px 8px",
                   fontSize: 12,
                   fontWeight: activeTab === "cabinet" ? 600 : 400,
-                  color: activeTab === "cabinet" ? "var(--tg-theme-button-color, #0a84ff)" : "rgba(255,255,255,0.7)",
+                  color: activeTab === "cabinet" ? "var(--tg-theme-button-color, #0a84ff)" : isLightTheme ? "#6c6c70" : "rgba(255,255,255,0.7)",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
