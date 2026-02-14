@@ -1,8 +1,6 @@
 import { AppRoot } from "@telegram-apps/telegram-ui";
-import { Button } from "@telegram-apps/telegram-ui";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { useEffect, useState } from "react";
-import { api, getYandexOAuthAuthorizeUrl } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 
 function displayName(me: AgentsMe | null): string {
@@ -13,39 +11,18 @@ function displayName(me: AgentsMe | null): string {
 }
 
 export interface CabinetScreenProps {
-  onOpenManager?: () => void;
+  onSupport: () => void;
   onLogout: () => void;
 }
 
-export function CabinetScreen({ onOpenManager, onLogout }: CabinetScreenProps) {
+export function CabinetScreen({ onSupport, onLogout }: CabinetScreenProps) {
   const [user, setUser] = useState<AgentsMe | null>(null);
-  const [yandexLoading, setYandexLoading] = useState(false);
-  const [yandexError, setYandexError] = useState<string | null>(null);
 
   useEffect(() => {
     getAgentsMe()
       .then((me) => setUser(me ?? null))
       .catch(() => setUser(null));
   }, []);
-
-  const handleYandex = async () => {
-    hapticImpact("light");
-    setYandexError(null);
-    setYandexLoading(true);
-    try {
-      const { url } = await getYandexOAuthAuthorizeUrl();
-      if (typeof window.Telegram?.WebApp?.openLink === "function") {
-        window.Telegram.WebApp.openLink(url);
-      } else {
-        window.open(url, "_blank");
-      }
-    } catch (e) {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Не удалось получить ссылку";
-      setYandexError(msg);
-    } finally {
-      setYandexLoading(false);
-    }
-  };
 
   const name = displayName(user);
   const photoUrl = typeof window !== "undefined" ? (window.Telegram?.WebApp?.initDataUnsafe as { user?: { photo_url?: string } } | undefined)?.user?.photo_url : undefined;
@@ -58,7 +35,7 @@ export function CabinetScreen({ onOpenManager, onLogout }: CabinetScreenProps) {
           background: "var(--tg-theme-bg-color, #fff)",
           color: "var(--tg-theme-text-color, #000)",
           padding: 24,
-          paddingBottom: 120,
+          paddingBottom: 140,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -98,22 +75,6 @@ export function CabinetScreen({ onOpenManager, onLogout }: CabinetScreenProps) {
           </p>
         </div>
 
-        <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 12 }}>
-          {onOpenManager && (
-            <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); onOpenManager(); }}>
-              Кабинет менеджера
-            </Button>
-          )}
-          <Button size="l" stretched mode="secondary" onClick={handleYandex} loading={yandexLoading}>
-            Подключить Яндекс Про
-          </Button>
-          {yandexError && (
-            <p style={{ fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", margin: 0 }}>
-              {yandexError}
-            </p>
-          )}
-        </div>
-
         <div
           style={{
             position: "fixed",
@@ -123,8 +84,22 @@ export function CabinetScreen({ onOpenManager, onLogout }: CabinetScreenProps) {
             padding: "16px 24px",
             background: "var(--tg-theme-bg-color, #fff)",
             borderTop: "1px solid var(--tg-theme-hint-color, #eee)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
+          <button
+            type="button"
+            className="secondary"
+            style={{ width: "100%", padding: "12px 16px" }}
+            onClick={() => {
+              hapticImpact("light");
+              onSupport();
+            }}
+          >
+            Связаться с поддержкой
+          </button>
           <button
             type="button"
             className="secondary"

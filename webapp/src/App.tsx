@@ -21,6 +21,31 @@ function setLinkedPersist(linked: boolean) {
   }
 }
 
+/** Ждём появления initData (Telegram инжектирует его асинхронно). При повторном входе без ожидания запрос уходит без auth и бэкенд возвращает 401 / linked: false. */
+function waitForInitData(maxMs = 3000): Promise<void> {
+  return new Promise((resolve) => {
+    const wa = typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
+    if (!wa?.initData || wa.initData.length > 0) {
+      resolve();
+      return;
+    }
+    const step = 100;
+    let elapsed = 0;
+    const t = setInterval(() => {
+      elapsed += step;
+      if (wa.initData?.length) {
+        clearInterval(t);
+        resolve();
+        return;
+      }
+      if (elapsed >= maxMs) {
+        clearInterval(t);
+        resolve();
+      }
+    }, step);
+  });
+}
+
 class HomeErrorBoundary extends Component<
   { children: React.ReactNode; onBack: () => void },
   { hasError: boolean; error?: Error }
@@ -97,46 +122,58 @@ export default function App() {
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"main" | "cabinet">("main");
 
-  // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). Оптимистично показываем home, если в localStorage уже был linked.
+  // При загрузке: ждём initData (TG отдаёт его асинхронно), затем agents/me → при linked проверка manager/me. При 401 и wasLinked — повтор до 2 раз (initData мог подтянуться позже).
   useEffect(() => {
     if (screen !== "init") return;
     setInitError(null);
     const wasLinked = typeof window !== "undefined" && localStorage.getItem(STORAGE_LINKED_KEY) === "1";
     if (wasLinked) setScreen("home");
-    getAgentsMe()
-      .then((agentMe) => {
-        setMe(agentMe);
-        setLinkedPersist(agentMe.linked);
-        setScreen((prev) => {
-          if (prev !== "init" && prev !== "home") return prev;
-          if (!agentMe.linked) return "onboarding";
-          return "home";
-        });
-        if (agentMe.linked) {
-          return getManagerMe()
-            .then((manager) => {
-              setScreen((prev) => (prev === "init" || prev === "home" ? (manager.hasFleet ? "home" : "onboarding") : prev));
-            })
-            .catch((e) => {
-              setInitError({
-                stage: STAGES.MANAGER_ME,
-                endpoint: ENDPOINTS.MANAGER_ME,
-                message: buildErrorMessage(e),
+
+    let retriesLeft = 2;
+    function runInit() {
+      waitForInitData(3000)
+        .then(() => getAgentsMe())
+        .then((agentMe) => {
+          setMe(agentMe);
+          setLinkedPersist(agentMe.linked);
+          setScreen((prev) => {
+            if (prev !== "init" && prev !== "home") return prev;
+            if (!agentMe.linked) return "onboarding";
+            return "home";
+          });
+          if (agentMe.linked) {
+            return getManagerMe()
+              .then((manager) => {
+                setScreen((prev) => (prev === "init" || prev === "home" ? (manager.hasFleet ? "home" : "onboarding") : prev));
+              })
+              .catch((e) => {
+                setInitError({
+                  stage: STAGES.MANAGER_ME,
+                  endpoint: ENDPOINTS.MANAGER_ME,
+                  message: buildErrorMessage(e),
+                });
+                setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
               });
-              setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
-            });
-        }
-      })
-      .catch((e) => {
-        setLinkedPersist(false);
-        setInitError({
-          stage: STAGES.AGENTS_ME,
-          endpoint: ENDPOINTS.AGENTS_ME,
-          message: buildErrorMessage(e),
-        });
-        setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
-      })
-      .finally(() => setInitRetrying(false));
+          }
+        })
+        .catch((e) => {
+          const status = (e as { status?: number }).status;
+          if (status === 401 && wasLinked && retriesLeft > 0) {
+            retriesLeft -= 1;
+            setTimeout(runInit, 500);
+            return;
+          }
+          setLinkedPersist(false);
+          setInitError({
+            stage: STAGES.AGENTS_ME,
+            endpoint: ENDPOINTS.AGENTS_ME,
+            message: buildErrorMessage(e),
+          });
+          setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
+        })
+        .finally(() => setInitRetrying(false));
+    }
+    runInit();
   }, [retryCount, screen]);
 
   // Скрыть MainButton на главном экране (на случай перехода с онбординга)
@@ -266,7 +303,7 @@ export default function App() {
 
         {screen === "home" && (
           <>
-            <div style={{ paddingBottom: 56 }}>
+            <div style={{ paddingBottom: 56, background: "var(--tg-theme-bg-color, #fafafa)", minHeight: "100vh" }}>
               {activeTab === "main" &&
                 (useSimpleUI ? (
                   <SimpleHomeScreen
@@ -287,7 +324,14 @@ export default function App() {
                 ))}
               {activeTab === "cabinet" && (
               <CabinetScreen
-                onOpenManager={() => setScreen("manager")}
+                onSupport={() => {
+                  const link = (import.meta as { env?: { VITE_SUPPORT_LINK?: string } }).env?.VITE_SUPPORT_LINK || "https://t.me/";
+                  if (typeof window.Telegram?.WebApp?.openTelegramLink === "function") {
+                    window.Telegram.WebApp.openTelegramLink(link);
+                  } else if (typeof window.Telegram?.WebApp?.openLink === "function") {
+                    window.Telegram.WebApp.openLink(link);
+                  }
+                }}
                 onLogout={() => {
                   setLinkedPersist(false);
                   if (typeof window.Telegram?.WebApp?.close === "function") {
@@ -306,8 +350,8 @@ export default function App() {
                 left: 0,
                 right: 0,
                 display: "flex",
-                background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
-                borderTop: "1px solid var(--tg-theme-hint-color, #e0e0e0)",
+                background: "#2a2a2e",
+                borderTop: "1px solid rgba(255,255,255,0.06)",
                 paddingBottom: "env(safe-area-inset-bottom, 0px)",
                 zIndex: 100,
               }}
@@ -319,19 +363,27 @@ export default function App() {
                 aria-selected={activeTab === "main"}
                 style={{
                   flex: 1,
-                  padding: "12px 8px",
-                  fontSize: 13,
+                  padding: "10px 8px",
+                  fontSize: 12,
                   fontWeight: activeTab === "main" ? 600 : 400,
-                  color: activeTab === "main" ? "var(--tg-theme-button-color, #2481cc)" : "var(--tg-theme-hint-color, #666)",
+                  color: activeTab === "main" ? "var(--tg-theme-button-color, #0a84ff)" : "rgba(255,255,255,0.7)",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 4,
                 }}
                 onClick={() => {
                   hapticImpact("light");
                   setActiveTab("main");
                 }}
               >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <polyline points="9 22 9 12 15 12 15 22" />
+                </svg>
                 Главная
               </button>
               <button
@@ -340,19 +392,27 @@ export default function App() {
                 aria-selected={activeTab === "cabinet"}
                 style={{
                   flex: 1,
-                  padding: "12px 8px",
-                  fontSize: 13,
+                  padding: "10px 8px",
+                  fontSize: 12,
                   fontWeight: activeTab === "cabinet" ? 600 : 400,
-                  color: activeTab === "cabinet" ? "var(--tg-theme-button-color, #2481cc)" : "var(--tg-theme-hint-color, #666)",
+                  color: activeTab === "cabinet" ? "var(--tg-theme-button-color, #0a84ff)" : "rgba(255,255,255,0.7)",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 4,
                 }}
                 onClick={() => {
                   hapticImpact("light");
                   setActiveTab("cabinet");
                 }}
               >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
                 Кабинет
               </button>
             </div>
