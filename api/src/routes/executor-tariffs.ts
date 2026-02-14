@@ -1,16 +1,5 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { validateInitData, parseInitData } from "../lib/telegram.js";
-import { config } from "../config.js";
-
-async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
-    return reply.status(401).send({ error: "Invalid or missing initData" });
-  }
-  const { user } = parseInitData(initData);
-  if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
-  (req as any).telegramUserId = user.id;
-}
+import type { FastifyInstance } from "fastify";
+import { requireInitData } from "../lib/auth.js";
 
 // Example list; replace with API/DB when you have executor tariffs source
 const EXECUTOR_TARIFFS: Record<string, { id: string; name: string }[]> = {
@@ -29,7 +18,7 @@ export async function executorTariffsRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { type?: "driver" | "courier" };
   }>("/", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
     const type = req.query.type || "driver";
     const list = EXECUTOR_TARIFFS[type] || EXECUTOR_TARIFFS.driver;

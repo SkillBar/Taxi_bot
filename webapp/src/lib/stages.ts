@@ -76,13 +76,16 @@ export function buildErrorMessage(e: unknown): string {
   if (msg) {
     const parsed = (() => {
       try {
-        if (msg.startsWith("{")) return JSON.parse(msg) as { error?: string; message?: string };
+        if (msg.startsWith("{")) return JSON.parse(msg) as { error?: string; message?: string; details?: string };
       } catch {
         /* ignore */
       }
       return null;
     })();
-    const serverMsg = parsed?.error ?? parsed?.message ?? msg;
+    const serverMsg =
+      parsed?.details != null && parsed.details !== ""
+        ? `${parsed?.error ?? "Ошибка"}: ${parsed.details}`
+        : parsed?.error ?? parsed?.message ?? msg;
     const prefix = status != null ? `Ответ сервера: ${status}. ` : "Ответ сервера: ";
     if (serverMsg !== msg || msg.includes("Invalid") || msg.includes("error") || /^\d{3}\s/.test(msg)) {
       return `${prefix}${serverMsg}`;

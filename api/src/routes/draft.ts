@@ -1,24 +1,14 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
-import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
-
-async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
-    return reply.status(401).send({ error: "Invalid or missing initData" });
-  }
-  const { user } = parseInitData(initData);
-  if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
-  (req as any).telegramUserId = user.id;
-}
+import { requireInitData, type RequestWithTelegram } from "../lib/auth.js";
 
 export async function draftRoutes(app: FastifyInstance) {
   // Get or create current in_progress draft for agent
   app.get("/current", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const agent = await prisma.agent.findUnique({ where: { telegramUserId } });
     if (!agent) return reply.status(404).send({ error: "Agent not found" });
 
@@ -33,9 +23,9 @@ export async function draftRoutes(app: FastifyInstance) {
   app.post<{
     Body: { type: "driver" | "courier" };
   }>("/", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const { type } = req.body || {};
     if (type !== "driver" && type !== "courier")
       return reply.status(400).send({ error: "type must be driver or courier" });
@@ -54,9 +44,9 @@ export async function draftRoutes(app: FastifyInstance) {
     Params: { draftId: string };
     Body: Record<string, unknown>;
   }>("/:draftId", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const { draftId } = req.params;
     const body = req.body as Record<string, unknown>;
 
@@ -110,9 +100,9 @@ export async function draftRoutes(app: FastifyInstance) {
   app.post<{
     Params: { draftId: string };
   }>("/:draftId/submit", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const { draftId } = req.params;
 
     const agent = await prisma.agent.findUnique({ where: { telegramUserId } });

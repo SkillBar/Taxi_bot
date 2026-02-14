@@ -25,7 +25,9 @@ model Agent {
 model Manager {
   id                String   @id @default(cuid())
   telegramId        String?  @unique // Telegram user ID менеджера
-  name              String?
+  name              String?  // из Telegram: first_name + last_name
+  telegramUsername  String?  // @username из Telegram
+  phone             String?  // номер телефона (если передан отдельно)
   yandexApiKey      String?  // API-ключ Fleet, введённый агентом
   yandexParkId      String?  // ID парка
   yandexClientId    String?  // taxi/park/{parkId}

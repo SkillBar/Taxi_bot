@@ -22,13 +22,17 @@
 │       ├── config.ts       # port, host, env (DATABASE_URL, DIRECT_URL, AGENT_CHECK_URL…)
 │       ├── db.ts           # Prisma client
 │       ├── routes/
-│       │   ├── agent.ts    # Агенты: check, me, link, link-from-bot
+│       │   ├── agent.ts    # Агенты: check, me, link, by-telegram, tariffs, email
+│       │   ├── bot.ts      # Только для бота (X-Api-Secret): manager/set-phone, agents/link
 │       │   ├── draft.ts    # CRUD черновиков регистрации
 │       │   ├── executor-tariffs.ts
-│       │   ├── manager.ts  # Менеджер/Fleet: me, drivers, link-driver, connect-fleet
+│       │   ├── manager.ts  # Менеджер/Fleet: me, connect-fleet, drivers, link-driver
 │       │   ├── stats.ts
 │       │   └── yandex-oauth.ts # OAuth для водителей
+│       ├── services/
+│       │   └── agent-link.ts # Нормализация телефона, привязка агента по telegramUserId (бот)
 │       └── lib/
+│           ├── auth.ts     # requireInitData (Mini App), requireBotSecret (бот)
 │           ├── telegram.ts # Валидация initData
 │           └── yandex-fleet.ts # Fleet API: парки, водители, валидация ключа
 ├── webapp/                 # Mini App (отдельный проект Vercel, Root: webapp)
@@ -68,7 +72,8 @@
 - **Стек:** Node.js, **Fastify 4**, **Prisma 5**, PostgreSQL (Neon). TypeScript, ESM (`"type": "module"`).
 - **Сборка:** `npm run build` → `mkdir -p public && rm -rf dist && tsc --outDir ./_dist`. Исходники в `api/src/`, артефакты в `api/_dist/`. Папка `_dist` — чтобы Vercel не сканировал её как отдельные serverless-функции.
 - **Точка входа на Vercel:** `api/index.js` (не из `_dist`). Это обычный JS-файл: `import app from "./_dist/index.js"`, `export default async function handler(req, res) { await app.ready(); app.server.emit("request", req, res); }`. Vercel вызывает эту функцию; Fastify обрабатывает запрос.
-- **Маршруты:** `/health`; `/api/agents/*` (check, me, link, link-from-bot); `/api/drafts/*`; `/api/manager/*` (me, drivers, link-driver, **POST connect-fleet** — сохранение API-ключа Fleet и parkId); `/api/executor-tariffs/*`; `/api/stats/*`; `/api/yandex-oauth/*`. CORS включён.
+- **Маршруты:** `/health`, `/ping`; `/api/agents/*` (check, me, link, by-telegram, tariffs, email); **`/api/bot/*`** (только с X-Api-Secret: `POST manager/set-phone`, `POST agents/link`); `/api/drafts/*`; `/api/manager/*` (me, connect-fleet, drivers, link-driver); `/api/executor-tariffs/*`; `/api/stats/*`; `/api/yandex-oauth/*`. CORS включён.
+- **Авторизация:** Mini App — заголовок `x-telegram-init-data`, общий хук `requireInitData` (lib/auth.ts). Бот — заголовок `X-Api-Secret`, хук `requireBotSecret`; эндпоинты бота вынесены в `/api/bot/*`.
 - **Данные:** Prisma, схема в `api/prisma/schema.prisma`. Для Neon: `DATABASE_URL` (pooled), `DIRECT_URL` (direct, для миграций). Опционально: внешняя проверка агента (`AGENT_CHECK_URL`).
 - **Деплой:** Отдельный проект Vercel, **Root Directory: `api`**. Build/Install команды задаются в Project Settings (не в `api/vercel.json`). Output Directory: `public` (пустая папка создаётся в build). В `api/vercel.json` только `rewrites`, без `builds`.
 

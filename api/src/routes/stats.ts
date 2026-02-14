@@ -1,39 +1,40 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { prisma } from "../db.js";
 import { config } from "../config.js";
-import { validateInitData, parseInitData } from "../lib/telegram.js";
+import { requireInitData } from "../lib/auth.js";
+import type { RequestWithTelegram } from "../lib/auth.js";
 
-async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
-    return reply.status(401).send({ error: "Invalid or missing initData" });
-  }
-  const { user } = parseInitData(initData);
-  if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
-  (req as any).telegramUserId = user.id;
+interface RequestWithOptionalAgentId extends RequestWithTelegram {
+  agentIdFromSecret?: string;
 }
 
-async function authFromInitDataOrSecret(req: FastifyRequest, reply: FastifyReply) {
-  const secret = req.headers["x-api-secret"];
+async function requireInitDataOrBotSecret(
+  req: FastifyRequest,
+  reply: Parameters<typeof requireInitData>[1],
+  next: (err?: Error) => void
+): Promise<void> {
+  const secret = (req.headers["x-api-secret"] as string) || "";
   const agentId = (req.query as { agentId?: string }).agentId;
   if (config.apiSecret && secret === config.apiSecret && agentId) {
-    (req as any).agentIdFromSecret = agentId;
+    (req as RequestWithOptionalAgentId).agentIdFromSecret = agentId;
+    next();
     return;
   }
-  return authFromInitData(req, reply);
+  await requireInitData(req, reply, next);
 }
 
 export async function statsRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { period?: "day" | "week" | "month"; agentId?: string };
   }>("/", {
-    preHandler: authFromInitDataOrSecret,
+    preHandler: requireInitDataOrBotSecret,
   }, async (req, reply) => {
     let agent: { id: string } | null;
-    if ((req as any).agentIdFromSecret) {
-      agent = await prisma.agent.findUnique({ where: { id: (req as any).agentIdFromSecret } });
+    const reqAuth = req as RequestWithOptionalAgentId;
+    if (reqAuth.agentIdFromSecret) {
+      agent = await prisma.agent.findUnique({ where: { id: reqAuth.agentIdFromSecret } });
     } else {
-      const telegramUserId = String((req as any).telegramUserId);
+      const telegramUserId = String(reqAuth.telegramUserId);
       agent = await prisma.agent.findUnique({ where: { telegramUserId } });
     }
     if (!agent) return reply.status(404).send({ error: "Agent not found" });

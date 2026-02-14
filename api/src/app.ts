@@ -8,6 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { agentRoutes } from "./routes/agent.js";
+import { botRoutes } from "./routes/bot.js";
 import { draftRoutes } from "./routes/draft.js";
 import { executorTariffsRoutes } from "./routes/executor-tariffs.js";
 import { managerRoutes } from "./routes/manager.js";
@@ -46,6 +47,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });
+  await app.register(botRoutes, { prefix: "/api/bot" });
   await app.register(draftRoutes, { prefix: "/api/drafts" });
   await app.register(executorTariffsRoutes, { prefix: "/api/executor-tariffs" });
   await app.register(managerRoutes, { prefix: "/api/manager" });

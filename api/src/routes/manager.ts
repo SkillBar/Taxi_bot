@@ -12,7 +12,11 @@ import {
   type FleetCredentials,
 } from "../lib/yandex-fleet.js";
 
-async function requireManager(req: FastifyRequest, reply: FastifyReply) {
+async function requireManager(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  next: (err?: Error) => void
+) {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   if (!initData) {
     return reply.status(401).send({
@@ -33,15 +37,42 @@ async function requireManager(req: FastifyRequest, reply: FastifyReply) {
   (req as FastifyRequest & { telegramUserId?: number; telegramUser?: { first_name?: string; last_name?: string } }).telegramUserId = user.id;
   (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser = user;
 
+  const nameFromTelegram =
+    [user.first_name, user.last_name].filter((s) => s != null && String(s).trim() !== "").join(" ").trim() || null;
+  const usernameFromTelegram =
+    typeof user.username === "string" && user.username.trim() !== "" ? user.username.trim() : null;
+
+  req.log.info({
+    step: "requireManager",
+    telegramUserId: user.id,
+    fromInitData: { first_name: user.first_name, last_name: user.last_name, username: user.username },
+    derived: { name: nameFromTelegram, telegramUsername: usernameFromTelegram },
+  });
+
   let manager = await prisma.manager.findUnique({
     where: { telegramId: String(user.id) },
   });
   if (!manager) {
     manager = await prisma.manager.create({
-      data: { telegramId: String(user.id) },
+      data: {
+        telegramId: String(user.id),
+        name: nameFromTelegram,
+        telegramUsername: usernameFromTelegram,
+      },
     });
+  } else {
+    const updates: { name?: string | null; telegramUsername?: string | null } = {};
+    if (nameFromTelegram != null) updates.name = nameFromTelegram;
+    if (usernameFromTelegram != null) updates.telegramUsername = usernameFromTelegram;
+    if (Object.keys(updates).length > 0) {
+      manager = await prisma.manager.update({
+        where: { id: manager.id },
+        data: updates,
+      });
+    }
   }
   (req as FastifyRequest & { managerId?: string }).managerId = manager.id;
+  next();
 }
 
 function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId: string | null; yandexClientId: string | null }): FleetCredentials | null {
@@ -50,7 +81,8 @@ function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId:
 }
 
 export async function managerRoutes(app: FastifyInstance) {
-  app.addHook("preHandler", requireManager);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app.addHook("preHandler", requireManager as any);
 
   /**
    * GET /api/manager/me

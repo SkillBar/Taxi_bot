@@ -74,17 +74,38 @@ bot.on("message:contact", async (ctx) => {
     await ctx.reply("Не удалось определить номер. Используйте кнопку «Отправить контакт».");
     return;
   }
+  const telegramUserId = String(ctx.from?.id ?? "");
+
+  // Всегда сохраняем номер в кабинет менеджера (Manager.phone)
+  try {
+    await fetch(`${API_URL}/api/bot/manager/set-phone`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.API_SECRET && { "X-Api-Secret": process.env.API_SECRET }),
+      },
+      body: JSON.stringify({ telegramUserId, phone }),
+    });
+  } catch {
+    // не блокируем основной сценарий
+  }
+
   const res = await fetch(
     `${API_URL}/api/agents/check?phone=${encodeURIComponent(phone)}`
   );
   const data = (await res.json()) as { found?: boolean; agentId?: string; message?: string };
+  const fromMiniApp = ctx.session.step !== "contact";
   if (!data.found) {
-    await ctx.reply(
-      data.message || "Ваш номер не найден в системе. Обратитесь к администратору."
-    );
+    if (fromMiniApp) {
+      await ctx.reply("Номер подтверждён. Вернитесь в приложение.");
+    } else {
+      await ctx.reply(
+        data.message || "Ваш номер не найден в системе. Обратитесь к администратору."
+      );
+    }
     return;
   }
-  const linkRes = await fetch(`${API_URL}/api/agents/link-from-bot`, {
+  const linkRes = await fetch(`${API_URL}/api/bot/agents/link`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -99,7 +120,6 @@ bot.on("message:contact", async (ctx) => {
   }
   ctx.session.agentId = data.agentId;
   ctx.session.phone = phone;
-  const fromMiniApp = ctx.session.step !== "contact";
   if (fromMiniApp) {
     ctx.session.step = "menu";
     await ctx.reply("Номер подтверждён. Вернитесь в приложение.");

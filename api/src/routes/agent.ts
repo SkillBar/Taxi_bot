@@ -1,17 +1,13 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { prisma } from "../db.js";
 import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
-
-async function authFromInitData(req: FastifyRequest, reply: FastifyReply) {
-  const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  if (!initData || !validateInitData(initData, config.botToken, 86400)) {
-    return reply.status(401).send({ error: "Invalid or missing initData" });
-  }
-  const { user } = parseInitData(initData);
-  if (!user?.id) return reply.status(401).send({ error: "User not in initData" });
-  (req as FastifyRequest & { telegramUserId?: number }).telegramUserId = user.id;
-}
+import { requireInitData, INIT_DATA_MAX_AGE_SEC, type RequestWithTelegram } from "../lib/auth.js";
+import {
+  normalizePhone,
+  checkExternalAgent,
+  upsertAgentFromExternal,
+} from "../services/agent-link.js";
 
 export async function agentRoutes(app: FastifyInstance) {
   // Текущий пользователь из initData (имя + привязка к агенту)
@@ -24,7 +20,7 @@ export async function agentRoutes(app: FastifyInstance) {
       hasBotToken,
       result: !initData ? "initData_missing" : !hasBotToken ? "botToken_missing" : "checking_validation",
     });
-    if (!initData || !validateInitData(initData, config.botToken, 86400)) {
+    if (!initData || !validateInitData(initData, config.botToken, INIT_DATA_MAX_AGE_SEC)) {
       app.log.info({ step: "agents/me", result: "initData_invalid" });
       return reply.status(401).send({ error: "Invalid or missing initData" });
     }
@@ -57,8 +53,8 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { phone: string };
   }>("/check", async (req, reply) => {
-    const phone = normalizePhone(req.query.phone);
-    if (!phone) return reply.status(400).send({ error: "Phone required" });
+    const phone = normalizePhone(req.query.phone != null ? req.query.phone : "");
+    if (!phone || phone.length < 10) return reply.status(400).send({ error: "Phone required" });
 
     const external = await checkExternalAgent(phone);
     if (external) {
@@ -82,62 +78,12 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.send({ found: true, agentId: agent.id });
   });
 
-  // Link from bot: после requestContact в Mini App бот получает контакт и вызывает этот endpoint
-  app.post<{
-    Body: { phone: string; telegramUserId: string };
-  }>("/link-from-bot", async (req, reply) => {
-    const secret = (req.headers["x-api-secret"] as string) || "";
-    if (!config.apiSecret || secret !== config.apiSecret) {
-      app.log.warn({ step: "link-from-bot", result: "invalid_secret" });
-      return reply.status(401).send({ error: "Invalid or missing X-Api-Secret" });
-    }
-    const body = req.body as { phone?: string; telegramUserId?: string };
-    const phone = normalizePhone(body?.phone || "");
-    const telegramUserId = body?.telegramUserId;
-    if (!phone || !telegramUserId) {
-      return reply.status(400).send({ error: "phone and telegramUserId required" });
-    }
-
-    let agent = await prisma.agent.findFirst({
-      where: { phone, isActive: true },
-    });
-    if (!agent) {
-      const external = await checkExternalAgent(phone);
-      if (!external?.found || !external.isActive) {
-        app.log.info({
-          step: "link-from-bot",
-          result: "agent_not_found",
-          phoneSuffix: phone.slice(-4),
-          telegramUserId,
-          externalMessage: external?.message,
-        });
-        return reply.status(404).send({
-          error: "Agent not found",
-          message: external?.message || "Ваш номер не найден в системе. Обратитесь к администратору.",
-        });
-      }
-      agent = await upsertAgentFromExternal(phone, external.externalId || null, true);
-    }
-    await prisma.agent.update({
-      where: { id: agent.id },
-      data: { telegramUserId: String(telegramUserId) },
-    });
-    app.log.info({
-      step: "link-from-bot",
-      result: "success",
-      agentId: agent.id,
-      telegramUserId,
-      phoneSuffix: phone.slice(-4),
-    });
-    return reply.send({ agentId: agent.id });
-  });
-
   // Link telegram user to agent (initData обязателен — берём telegramUserId из него)
   app.post<{
     Body: { phone: string };
   }>("/link", async (req, reply) => {
     const initData = (req.headers["x-telegram-init-data"] as string) || "";
-    if (!initData || !validateInitData(initData, config.botToken, 86400)) {
+    if (!initData || !validateInitData(initData, config.botToken, INIT_DATA_MAX_AGE_SEC)) {
       return reply.status(401).send({ error: "Invalid or missing initData" });
     }
     const { user } = parseInitData(initData);
@@ -182,9 +128,9 @@ export async function agentRoutes(app: FastifyInstance) {
     Params: { agentId: string };
     Body: { yandexEmail: string };
   }>("/:agentId/email", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const { agentId } = req.params;
     const yandexEmail = (req.body as any)?.yandexEmail;
     if (typeof yandexEmail !== "string" || !/^[^\s@]+@(yandex\.ru|ya\.ru|yandex\.com|yandex\.by|yandex\.kz)$/i.test(yandexEmail))
@@ -203,9 +149,9 @@ export async function agentRoutes(app: FastifyInstance) {
 
   // List agent tariffs (conditions) — requires initData (from WebApp)
   app.get("/me/tariffs", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const agent = await prisma.agent.findUnique({
       where: { telegramUserId },
       include: { agentTariffs: true },
@@ -225,9 +171,9 @@ export async function agentRoutes(app: FastifyInstance) {
   app.post<{
     Body: { commissionPercent: number };
   }>("/me/tariffs", {
-    preHandler: authFromInitData,
+    preHandler: requireInitData,
   }, async (req, reply) => {
-    const telegramUserId = String((req as any).telegramUserId);
+    const telegramUserId = String((req as RequestWithTelegram).telegramUserId);
     const { commissionPercent } = req.body || {};
     if (typeof commissionPercent !== "number" || commissionPercent < 0 || commissionPercent > 100)
       return reply.status(400).send({ error: "commissionPercent 0-100 required" });
@@ -240,76 +186,4 @@ export async function agentRoutes(app: FastifyInstance) {
     });
     return reply.send({ id: tariff.id, commissionPercent: tariff.commissionPercent });
   });
-}
-
-type ExternalAgentCheck = {
-  found: boolean;
-  externalId?: string | null;
-  isActive?: boolean;
-  message?: string;
-};
-
-async function checkExternalAgent(phone: string): Promise<ExternalAgentCheck | null> {
-  if (!config.agentCheckUrl) return null;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (config.agentCheckApiKey) {
-    headers["X-API-Key"] = config.agentCheckApiKey;
-    headers["Authorization"] = `Bearer ${config.agentCheckApiKey}`;
-  }
-
-  const res = await fetch(config.agentCheckUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ phone }),
-  });
-
-  if (!res.ok) {
-    return { found: false, message: "Ошибка проверки номера. Попробуйте позже." };
-  }
-
-  const data = (await res.json()) as any;
-  const found = Boolean(data?.found || data?.isFound || data?.ok);
-  const externalId = data?.externalId || data?.agentId || data?.id || null;
-  const isActive = data?.isActive || data?.active || found;
-  const message = data?.message;
-  return { found, externalId, isActive, message };
-}
-
-async function upsertAgentFromExternal(phone: string, externalId: string | null, isActive: boolean) {
-  if (externalId) {
-    const existingByExternal = await prisma.agent.findUnique({ where: { externalId } });
-    if (existingByExternal) {
-      return prisma.agent.update({
-        where: { id: existingByExternal.id },
-        data: { phone, isActive },
-      });
-    }
-  }
-
-  const existingByPhone = await prisma.agent.findFirst({ where: { phone } });
-  if (existingByPhone) {
-    return prisma.agent.update({
-      where: { id: existingByPhone.id },
-      data: { externalId: externalId || existingByPhone.externalId, isActive },
-    });
-  }
-
-  return prisma.agent.create({
-    data: {
-      phone,
-      externalId: externalId || undefined,
-      isActive,
-    },
-  });
-}
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10 && digits.startsWith("9")) return "+7" + digits;
-  if (digits.length === 11 && digits.startsWith("7")) return "+" + digits;
-  if (digits.length === 11 && digits.startsWith("8")) return "+7" + digits.slice(1);
-  return raw.startsWith("+") ? raw : "+" + digits;
 }
