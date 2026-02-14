@@ -17,6 +17,13 @@ export async function agentRoutes(app: FastifyInstance) {
   // Текущий пользователь из initData (имя + привязка к агенту)
   app.get("/me", async (req, reply) => {
     const initData = (req.headers["x-telegram-init-data"] as string) || "";
+    const hasBotToken = Boolean(config.botToken && config.botToken.length > 0);
+    app.log.info({
+      step: "agents/me",
+      initDataLength: initData.length,
+      hasBotToken,
+      result: !initData ? "initData_missing" : !hasBotToken ? "botToken_missing" : "checking_validation",
+    });
     if (!initData || !validateInitData(initData, config.botToken, 86400)) {
       app.log.info({ step: "agents/me", result: "initData_invalid" });
       return reply.status(401).send({ error: "Invalid or missing initData" });
