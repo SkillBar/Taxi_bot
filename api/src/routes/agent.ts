@@ -33,9 +33,16 @@ export async function agentRoutes(app: FastifyInstance) {
       app.log.info({ step: "agents/me", result: "user_missing" });
       return reply.status(401).send({ error: "User not in initData" });
     }
-    const agent = await prisma.agent.findUnique({
-      where: { telegramUserId: String(user.id) },
-    });
+    let agent;
+    try {
+      agent = await prisma.agent.findUnique({
+        where: { telegramUserId: String(user.id) },
+      });
+    } catch (dbErr) {
+      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      app.log.error({ step: "agents/me", error: msg, telegramUserId: user.id });
+      return reply.status(500).send({ error: "Database error", details: msg });
+    }
     const linked = Boolean(agent?.isActive);
     app.log.info({ step: "agents/me", telegramUserId: user.id, linked, agentId: agent?.id != null ? agent.id : null });
     return reply.send({
