@@ -49,7 +49,12 @@ export async function getApiPing(): Promise<{ ok: boolean; origin?: string | nul
 
 export async function getAgentsMe(): Promise<AgentsMe> {
   const res = await fetchWithTimeout(`${API_URL}/api/agents/me`, { headers: headers() });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(body) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 

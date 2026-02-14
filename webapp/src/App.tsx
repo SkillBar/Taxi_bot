@@ -307,9 +307,6 @@ export default function App() {
           >
             {initRetrying ? "Повторная попытка…" : "Повторить"}
           </button>
-          <p style={{ marginTop: 12, fontSize: 12, color: "var(--tg-theme-hint-color, #666)" }}>
-            Если долго «Загрузка…» и тишина — запрос не доходит (таймаут 20 сек). Откройте приложение из Telegram.
-          </p>
           <button
             type="button"
             className="secondary"
@@ -318,7 +315,11 @@ export default function App() {
               setPingResult(null);
               getApiPing()
                 .then((r) => setPingResult(`Ping OK. Origin: ${r.origin ?? "(нет)"}, url: ${r.url ?? "-"}`))
-                .catch((e) => setPingResult(`Ping ошибка: ${e instanceof Error ? e.message : String(e)}`));
+                .catch((e) => {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  const hint = msg.includes("404") ? " Передеплойте API на Vercel (проект taxi-botapi)." : "";
+                  setPingResult(`Ping ошибка: ${msg}.${hint}`);
+                });
             }}
           >
             Проверить связь (ping)

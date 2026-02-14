@@ -1,5 +1,7 @@
 # Деплой API на Vercel (Serverless Functions)
 
+> **Используется один проект API** (например `taxi-botapi`). Проект **taxi-bot-api-v2** в Vercel не нужен — его можно удалить или отвязать от репо, чтобы не было лишних деплоев и писем об ошибках. Подробнее: [docs/VERCEL_PROJECTS.md](docs/VERCEL_PROJECTS.md).
+
 API (Fastify) можно развернуть на Vercel как **одну serverless-функцию** (Fluid Compute). Тогда не нужен отдельный хостинг (Railway и т.д.) — и WebApp, и API могут быть на Vercel (в двух проектах или в одном с разными настройками).
 
 ## Как это устроено

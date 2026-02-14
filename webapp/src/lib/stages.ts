@@ -70,5 +70,24 @@ export function buildErrorMessage(e: unknown): string {
           : err.response.statusText || `HTTP ${status}`;
     return `Ответ сервера: ${status}. ${body}`;
   }
+  // fetch: мы бросаем Error с body в message и status на err.status
+  const status = (e as { status?: number }).status;
+  const msg = typeof err?.message === "string" ? err.message.trim() : "";
+  if (msg) {
+    const parsed = (() => {
+      try {
+        if (msg.startsWith("{")) return JSON.parse(msg) as { error?: string; message?: string };
+      } catch {
+        /* ignore */
+      }
+      return null;
+    })();
+    const serverMsg = parsed?.error ?? parsed?.message ?? msg;
+    const prefix = status != null ? `Ответ сервера: ${status}. ` : "Ответ сервера: ";
+    if (serverMsg !== msg || msg.includes("Invalid") || msg.includes("error") || /^\d{3}\s/.test(msg)) {
+      return `${prefix}${serverMsg}`;
+    }
+    if (msg.length < 200) return status != null ? `${prefix}${msg}` : msg;
+  }
   return noConnectionMessage();
 }
