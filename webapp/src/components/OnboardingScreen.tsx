@@ -224,10 +224,10 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               </p>
             )}
             <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color, #000000)" }}>
-              Подключите ваш парк Yandex Fleet
+              Добро пожаловать в кабинет агента таксопарка!
             </h1>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Введите <strong>API-ключ</strong> из кабинета fleet.yandex.ru → Настройки → API. ID парка и Client ID подставлены автоматически.
+              Пожалуйста, введите свой API-ключ
             </p>
           </div>
 
@@ -292,16 +292,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               Подключение…
             </p>
           )}
-
-          <button
-            type="button"
-            className="primary"
-            onClick={handleConnectFleet}
-            disabled={loading}
-            style={{ marginTop: 16 }}
-          >
-            {loading ? "Подключение…" : "Подключить"}
-          </button>
         </main>
       </AppRoot>
     );
