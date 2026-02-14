@@ -4,9 +4,22 @@ import { getManagerMe } from "./lib/api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "./lib/stages";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { AgentHomeScreen } from "./components/AgentHomeScreen";
+import { CabinetScreen } from "./components/CabinetScreen";
 import { SimpleHomeScreen } from "./components/SimpleHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
+import { hapticImpact } from "./lib/haptic";
+
+const STORAGE_LINKED_KEY = "agent_linked";
+
+function setLinkedPersist(linked: boolean) {
+  try {
+    if (linked) localStorage.setItem(STORAGE_LINKED_KEY, "1");
+    else localStorage.removeItem(STORAGE_LINKED_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 class HomeErrorBoundary extends Component<
   { children: React.ReactNode; onBack: () => void },
@@ -82,23 +95,27 @@ export default function App() {
   const [retryCount, setRetryCount] = useState(0);
   const [initRetrying, setInitRetrying] = useState(false);
   const [pingResult, setPingResult] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"main" | "cabinet">("main");
 
-  // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). При сбое — экран с этапом.
+  // При загрузке: проверка входа (agents/me) → при linked проверка менеджера (manager/me). Оптимистично показываем home, если в localStorage уже был linked.
   useEffect(() => {
     if (screen !== "init") return;
     setInitError(null);
+    const wasLinked = typeof window !== "undefined" && localStorage.getItem(STORAGE_LINKED_KEY) === "1";
+    if (wasLinked) setScreen("home");
     getAgentsMe()
       .then((agentMe) => {
         setMe(agentMe);
+        setLinkedPersist(agentMe.linked);
         setScreen((prev) => {
-          if (prev !== "init") return prev;
+          if (prev !== "init" && prev !== "home") return prev;
           if (!agentMe.linked) return "onboarding";
-          return prev;
+          return "home";
         });
         if (agentMe.linked) {
           return getManagerMe()
             .then((manager) => {
-              setScreen((prev) => (prev === "init" ? (manager.hasFleet ? "home" : "onboarding") : prev));
+              setScreen((prev) => (prev === "init" || prev === "home" ? (manager.hasFleet ? "home" : "onboarding") : prev));
             })
             .catch((e) => {
               setInitError({
@@ -106,17 +123,18 @@ export default function App() {
                 endpoint: ENDPOINTS.MANAGER_ME,
                 message: buildErrorMessage(e),
               });
-              setScreen((prev) => (prev === "init" ? "initError" : prev));
+              setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
             });
         }
       })
       .catch((e) => {
+        setLinkedPersist(false);
         setInitError({
           stage: STAGES.AGENTS_ME,
           endpoint: ENDPOINTS.AGENTS_ME,
           message: buildErrorMessage(e),
         });
-        setScreen((prev) => (prev === "init" ? "initError" : prev));
+        setScreen((prev) => (prev === "init" || prev === "home" ? "initError" : prev));
       })
       .finally(() => setInitRetrying(false));
   }, [retryCount, screen]);
@@ -237,25 +255,109 @@ export default function App() {
           </>
         )}
 
-        {screen === "onboarding" && !useSimpleUI && <OnboardingScreen onLinked={() => setScreen("home")} />}
+        {screen === "onboarding" && !useSimpleUI && (
+          <OnboardingScreen
+            onLinked={() => {
+              setLinkedPersist(true);
+              setScreen("home");
+            }}
+          />
+        )}
 
-        {screen === "home" &&
-          (useSimpleUI ? (
-            <SimpleHomeScreen
-              user={me}
-              onRegisterDriver={() => startRegistration("driver")}
-              onRegisterCourier={() => startRegistration("courier")}
-              onOpenManager={() => setScreen("manager")}
-            />
-          ) : (
-            <HomeErrorBoundary onBack={() => setScreen("init")}>
-              <AgentHomeScreen
-                onRegisterDriver={() => startRegistration("driver")}
-                onRegisterCourier={() => startRegistration("courier")}
+        {screen === "home" && (
+          <>
+            <div style={{ paddingBottom: 56 }}>
+              {activeTab === "main" &&
+                (useSimpleUI ? (
+                  <SimpleHomeScreen
+                    user={me}
+                    onRegisterDriver={() => startRegistration("driver")}
+                    onRegisterCourier={() => startRegistration("courier")}
+                    onOpenManager={() => setScreen("manager")}
+                  />
+                ) : (
+                  <HomeErrorBoundary onBack={() => setScreen("init")}>
+                    <AgentHomeScreen
+                      mainTabOnly
+                      onRegisterDriver={() => startRegistration("driver")}
+                      onRegisterCourier={() => startRegistration("courier")}
+                      onOpenManager={() => setScreen("manager")}
+                    />
+                  </HomeErrorBoundary>
+                ))}
+              {activeTab === "cabinet" && (
+              <CabinetScreen
                 onOpenManager={() => setScreen("manager")}
+                onLogout={() => {
+                  setLinkedPersist(false);
+                  if (typeof window.Telegram?.WebApp?.close === "function") {
+                    window.Telegram.WebApp.close();
+                  } else {
+                    setScreen("onboarding");
+                  }
+                }}
               />
-            </HomeErrorBoundary>
-          ))}
+            )}
+            </div>
+            <div
+              style={{
+                position: "fixed",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                display: "flex",
+                background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                borderTop: "1px solid var(--tg-theme-hint-color, #e0e0e0)",
+                paddingBottom: "env(safe-area-inset-bottom, 0px)",
+                zIndex: 100,
+              }}
+              role="tablist"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "main"}
+                style={{
+                  flex: 1,
+                  padding: "12px 8px",
+                  fontSize: 13,
+                  fontWeight: activeTab === "main" ? 600 : 400,
+                  color: activeTab === "main" ? "var(--tg-theme-button-color, #2481cc)" : "var(--tg-theme-hint-color, #666)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+                onClick={() => {
+                  hapticImpact("light");
+                  setActiveTab("main");
+                }}
+              >
+                Главная
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "cabinet"}
+                style={{
+                  flex: 1,
+                  padding: "12px 8px",
+                  fontSize: 13,
+                  fontWeight: activeTab === "cabinet" ? 600 : 400,
+                  color: activeTab === "cabinet" ? "var(--tg-theme-button-color, #2481cc)" : "var(--tg-theme-hint-color, #666)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+                onClick={() => {
+                  hapticImpact("light");
+                  setActiveTab("cabinet");
+                }}
+              >
+                Кабинет
+              </button>
+            </div>
+          </>
+        )}
 
       </UIErrorBoundary>
 

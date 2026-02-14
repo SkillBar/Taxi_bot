@@ -3,6 +3,7 @@ import { AppRoot } from "@telegram-apps/telegram-ui";
 import { Input } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
 import { getManagerMe, connectFleet } from "../lib/api";
+import { hapticImpact } from "../lib/haptic";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage, noConnectionMessage } from "../lib/stages";
 
 declare global {
@@ -42,6 +43,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const errorBlockRef = useRef<HTMLDivElement>(null);
 
   const handleRequestContact = useCallback(() => {
+    hapticImpact("light");
     const wa = window.Telegram?.WebApp;
     if (!wa?.requestContact) {
       setError("Подтверждение контакта недоступно. Обновите Telegram.");
@@ -62,6 +64,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   }, []);
 
   const handleConnectFleet = useCallback(async () => {
+    hapticImpact("light");
     const key = apiKey.trim();
     if (!key) {
       setError("Введите API-ключ");

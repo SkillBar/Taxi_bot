@@ -73,18 +73,18 @@ export async function yandexOAuthRoutes(app: FastifyInstance) {
 
     if (error) {
       app.log.warn({ error, error_description }, "Yandex OAuth callback error");
-      if (redirectTo) return reply.redirect(302, `${redirectTo}&error=${encodeURIComponent(error)}`);
+      if (redirectTo) return reply.redirect(`${redirectTo}&error=${encodeURIComponent(error)}`, 302);
       return reply.status(400).send({ error, error_description });
     }
 
     if (!code || !state) {
-      if (redirectTo) return reply.redirect(302, `${redirectTo}&error=missing_params`);
+      if (redirectTo) return reply.redirect(`${redirectTo}&error=missing_params`, 302);
       return reply.status(400).send({ error: "code and state required" });
     }
 
     const telegramUserId = stateDecode(state);
     if (!telegramUserId) {
-      if (redirectTo) return reply.redirect(302, `${redirectTo}&error=invalid_state`);
+      if (redirectTo) return reply.redirect(`${redirectTo}&error=invalid_state`, 302);
       return reply.status(400).send({ error: "Invalid state" });
     }
 
@@ -105,7 +105,7 @@ export async function yandexOAuthRoutes(app: FastifyInstance) {
       });
     } catch (e) {
       app.log.error(e);
-      if (redirectTo) return reply.redirect(302, `${redirectTo}&error=token_request_failed`);
+      if (redirectTo) return reply.redirect(`${redirectTo}&error=token_request_failed`, 302);
       return reply.status(502).send({ error: "Token request failed" });
     }
 
@@ -120,7 +120,7 @@ export async function yandexOAuthRoutes(app: FastifyInstance) {
 
     if (!tokenRes.ok || !tokenData.access_token || !tokenData.refresh_token) {
       app.log.warn({ status: tokenRes.status, tokenData }, "Yandex OAuth token exchange failed");
-      if (redirectTo) return reply.redirect(302, `${redirectTo}&error=token_exchange_failed`);
+      if (redirectTo) return reply.redirect(`${redirectTo}&error=token_exchange_failed`, 302);
       return reply.status(400).send({ error: tokenData.error || "token_exchange_failed", error_description: tokenData.error_description });
     }
 
@@ -146,7 +146,7 @@ export async function yandexOAuthRoutes(app: FastifyInstance) {
 
     app.log.info({ telegramUserId }, "Yandex OAuth linked for driver");
 
-    if (redirectTo) return reply.redirect(302, redirectTo);
+    if (redirectTo) return reply.redirect(redirectTo, 302);
     return reply.send({ ok: true, message: "Yandex account linked" });
   });
 }

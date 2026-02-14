@@ -43,7 +43,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.send({ ok: true, origin, url, t: Date.now() });
   });
   app.get("/", async (_req, reply) => {
-    return reply.redirect(302, "/health");
+    return reply.redirect("/health", 302);
   });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });

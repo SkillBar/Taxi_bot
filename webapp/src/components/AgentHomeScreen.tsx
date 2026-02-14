@@ -11,6 +11,7 @@ import {
   Spinner,
 } from "@telegram-apps/telegram-ui";
 import { api, getYandexOAuthAuthorizeUrl } from "../lib/api";
+import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
 import { DriverDetails } from "./DriverDetails";
@@ -34,9 +35,11 @@ export interface AgentHomeScreenProps {
   onRegisterDriver: () => void;
   onRegisterCourier: () => void;
   onOpenManager?: () => void;
+  /** Только список исполнителей и кнопки «Добавить агента» / «Добавить курьера» внизу (для таба «Главная»). */
+  mainTabOnly?: boolean;
 }
 
-export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager }: AgentHomeScreenProps) {
+export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly }: AgentHomeScreenProps) {
   const [user, setUser] = useState<AgentsMe | null>(null);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [driversLoading, setDriversLoading] = useState(true);
@@ -140,11 +143,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           paddingBottom: 24,
         }}
       >
-        <div style={{ padding: "12px 16px", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", color: "var(--tg-theme-text-color, #000)" }}>
-          <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #333)", margin: 0 }}>
-            {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
-          </p>
-        </div>
+        {!mainTabOnly && (
+          <div style={{ padding: "12px 16px", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", color: "var(--tg-theme-text-color, #000)" }}>
+            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #333)", margin: 0 }}>
+              {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
+            </p>
+          </div>
+        )}
 
         {driversLoadError && (
           <div
@@ -198,54 +203,58 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             )}
           </Section>
 
-          <Section header="Добавить водителя">
-            <Input
-              header="Номер телефона"
-              placeholder="+7 999 123-45-67"
-              value={newPhone}
-              onChange={(e) => setNewPhone((e.target as HTMLInputElement).value)}
-            />
-            <div style={{ padding: 16 }}>
-              <Button size="l" stretched onClick={handleLinkDriver} loading={linking}>
-                Найти и привязать
-              </Button>
-              {linkError && (
-                <p style={{ marginTop: 12, fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {linkError}
-                </p>
-              )}
-            </div>
-          </Section>
+          {!mainTabOnly && (
+            <>
+              <Section header="Добавить водителя">
+                <Input
+                  header="Номер телефона"
+                  placeholder="+7 999 123-45-67"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone((e.target as HTMLInputElement).value)}
+                />
+                <div style={{ padding: 16 }}>
+                  <Button size="l" stretched onClick={handleLinkDriver} loading={linking}>
+                    Найти и привязать
+                  </Button>
+                  {linkError && (
+                    <p style={{ marginTop: 12, fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {linkError}
+                    </p>
+                  )}
+                </div>
+              </Section>
 
-          <Section header="Яндекс">
-            <div style={{ padding: "8px 16px 16px" }}>
-              <Button
-                size="l"
-                stretched
-                mode="secondary"
-                onClick={handleYandexOAuth}
-                loading={yandexOAuthLoading}
-                style={{ marginBottom: 8 }}
-              >
-                Подключить Яндекс Про / Войти через Яндекс
-              </Button>
-              {yandexOAuthError && (
-                <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginTop: 8 }}>
-                  {yandexOAuthError}
-                </p>
-              )}
-            </div>
-          </Section>
+              <Section header="Яндекс">
+                <div style={{ padding: "8px 16px 16px" }}>
+                  <Button
+                    size="l"
+                    stretched
+                    mode="secondary"
+                    onClick={handleYandexOAuth}
+                    loading={yandexOAuthLoading}
+                    style={{ marginBottom: 8 }}
+                  >
+                    Подключить Яндекс Про / Войти через Яндекс
+                  </Button>
+                  {yandexOAuthError && (
+                    <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginTop: 8 }}>
+                      {yandexOAuthError}
+                    </p>
+                  )}
+                </div>
+              </Section>
+            </>
+          )}
 
           <Section>
             <div style={{ padding: "8px 16px 16px" }}>
-              <Button size="l" stretched onClick={onRegisterDriver} style={{ marginBottom: 8 }}>
-                Зарегистрировать водителя
+              <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }} style={{ marginBottom: 8 }}>
+                Добавить агента
               </Button>
-              <Button size="l" stretched mode="secondary" onClick={onRegisterCourier} style={{ marginBottom: 8 }}>
-                Регистрация доставка / курьер
+              <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); onRegisterCourier(); }} style={{ marginBottom: 8 }}>
+                Добавить курьера
               </Button>
-              {onOpenManager && (
+              {!mainTabOnly && onOpenManager && (
                 <button
                   type="button"
                   className="secondary"
