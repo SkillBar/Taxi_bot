@@ -194,15 +194,30 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 <Spinner size="l" />
               </div>
             ) : drivers.length === 0 ? (
-              <Placeholder
-                header="Исполнители не найдены"
-                description={
-                  driversMeta?.hint ??
-                  (hasFleet === false
-                    ? "Подключите парк (API-ключ Fleet) в онбординге или в Кабинете, чтобы видеть список водителей парка."
-                    : "Добавьте водителя ниже или обратитесь к администратору.")
-                }
-              />
+              <>
+                <Placeholder header="Исполнители не найдены" description="Список водителей парка пуст или недоступен." />
+                <div
+                  style={{
+                    margin: "12px 16px",
+                    padding: 12,
+                    background: "var(--tg-theme-secondary-bg-color, #f0f0f0)",
+                    borderRadius: 8,
+                    border: "1px solid var(--tg-theme-hint-color, #ccc)",
+                    fontSize: 13,
+                    color: "var(--tg-theme-text-color, #000)",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>В чём причина:</div>
+                  <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {driversMeta?.hint ??
+                      (hasFleet === false
+                        ? "Парк не подключён. Подключите парк (API-ключ Fleet) в онбординге или в Кабинете — тогда здесь появится список водителей парка."
+                        : driversMeta
+                          ? `Источник: ${driversMeta.source === "fleet" ? "Fleet API" : "привязки по телефону"}. Записей: ${driversMeta.count ?? 0}.${driversMeta.source === "fleet" ? " Проверьте ID парка и права API-ключа в fleet.yandex.ru." : " Подключите парк (API-ключ) в онбординге."}`
+                          : "Ответ API без диагностики. В логах бэкенда ищите: step=drivers_list, source, parkDriversCount или listParkDrivers_failed.")}
+                  </div>
+                </div>
+              </>
             ) : (
               drivers.filter((d) => d?.id).map((driver) => (
                 <Cell

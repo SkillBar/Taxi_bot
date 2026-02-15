@@ -191,15 +191,17 @@ export function normalizePhoneForYandex(raw: string): string {
   return raw.startsWith("+") ? raw : "+" + raw;
 }
 
-/** Из поля phones в ответе Fleet API (массив строк или объектов с number). */
+/** Из поля phones в ответе Fleet API: строка, массив строк или массив объектов с number/phone. */
 function parsePhoneFromPhones(phones: unknown): string | null {
-  if (Array.isArray(phones) && phones.length > 0) {
-    const first = phones[0];
-    if (typeof first === "string") return first;
-    if (first != null && typeof first === "object" && "number" in first) {
-      const num = (first as { number?: string }).number;
-      return String(num != null ? num : "");
-    }
+  if (phones == null) return null;
+  if (typeof phones === "string") return phones.trim() || null;
+  if (!Array.isArray(phones) || phones.length === 0) return null;
+  const first = phones[0];
+  if (typeof first === "string") return first;
+  if (first != null && typeof first === "object") {
+    const obj = first as Record<string, unknown>;
+    if ("number" in obj && obj.number != null) return String(obj.number);
+    if ("phone" in obj && obj.phone != null) return String(obj.phone);
   }
   return null;
 }
@@ -267,11 +269,26 @@ type DriverProfileItem = {
   accounts?: Array<{ balance?: string }>;
 };
 
-/** Достаём массив driver_profiles из ответа Fleet: верхний уровень, parks[] или parks как объект по park_id. */
+/** Достаём массив driver_profiles из ответа Fleet: верхний уровень, data-обёртка, parks[] или parks как объект. */
 function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
   if (!data || typeof data !== "object") return [];
   const o = data as Record<string, unknown>;
+
   if (Array.isArray(o.driver_profiles)) return o.driver_profiles as DriverProfileItem[];
+
+  if (o.data != null && typeof o.data === "object") {
+    const d = o.data as Record<string, unknown>;
+    if (Array.isArray(d)) return d as DriverProfileItem[];
+    if (Array.isArray(d.driver_profiles)) return d.driver_profiles as DriverProfileItem[];
+    if (Array.isArray(d.parks)) {
+      const out: DriverProfileItem[] = [];
+      for (const park of d.parks as Array<{ driver_profiles?: DriverProfileItem[] }>) {
+        if (Array.isArray(park?.driver_profiles)) out.push(...park.driver_profiles);
+      }
+      return out;
+    }
+  }
+
   if (Array.isArray(o.parks)) {
     const out: DriverProfileItem[] = [];
     for (const park of o.parks as Array<{ driver_profiles?: DriverProfileItem[] }>) {
@@ -289,17 +306,27 @@ function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
   return [];
 }
 
+export type ListParkDriversDiagnostics = {
+  rawDriverProfilesLength: number;
+  parsedDriversCount: number;
+  firstItemSample?: string;
+};
+
 /**
  * Список всех водителей парка из Fleet API (driver-profiles/list по park.id).
- * Документация: https://fleet.yandex.ru/docs/api/ru/
- * Поддерживаются форматы ответа: { driver_profiles: [] } и { parks: [{ driver_profiles: [] }] }.
- * При пустом списке вызывается onEmptyResponseKeys(ключи верхнего уровня ответа) для диагностики.
+ * Поддерживаются форматы: { driver_profiles: [] }, { data: { driver_profiles: [] } }, { data: [] }, parks[]/parks{}.
+ * onEmptyResponseKeys — ключи ответа при пустом rawList или firstItemKeys при отсеве всех; onParseDiagnostics — счётчики и firstItemSample при отсеве.
  */
 export async function listParkDrivers(
   creds: FleetCredentials,
-  opts: { limit?: number; offset?: number; onEmptyResponseKeys?: (keys: string[]) => void } = {}
+  opts: {
+    limit?: number;
+    offset?: number;
+    onEmptyResponseKeys?: (keys: string[]) => void;
+    onParseDiagnostics?: (d: ListParkDriversDiagnostics) => void;
+  } = {}
 ): Promise<YandexDriverProfile[]> {
-  const { limit = 500, offset = 0, onEmptyResponseKeys } = opts;
+  const { limit = 500, offset = 0, onEmptyResponseKeys, onParseDiagnostics } = opts;
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
@@ -331,18 +358,39 @@ export async function listParkDrivers(
 
   const out: YandexDriverProfile[] = [];
   for (const d of rawList) {
-    const profile = d.driver_profile;
-    const id = profile?.id;
+    const raw = d as Record<string, unknown>;
+    const profile = (d.driver_profile ?? raw) as Record<string, unknown> | undefined;
+    const id = (profile?.id != null ? String(profile.id) : raw.id != null ? String(raw.id) : undefined) as string | undefined;
     if (!id) continue;
-    const firstName = profile?.first_name?.trim() || "";
-    const lastName = profile?.last_name?.trim() || "";
+    const firstName = (profile?.first_name != null ? String(profile.first_name) : raw.first_name != null ? String(raw.first_name) : "").trim();
+    const lastName = (profile?.last_name != null ? String(profile.last_name) : raw.last_name != null ? String(raw.last_name) : "").trim();
     const name = [firstName, lastName].filter(Boolean).join(" ") || null;
-    const phone = parsePhoneFromPhones(profile?.phones) || "";
-    const balanceRaw = d.accounts?.[0]?.balance;
+    const phones = profile?.phones ?? raw.phones;
+    const phone = parsePhoneFromPhones(phones) || "";
+    const balanceRaw = d.accounts?.[0]?.balance ?? raw.balance;
     const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
-    const workStatus = profile?.work_status;
+    const workStatus = (profile?.work_status != null ? String(profile.work_status) : raw.work_status != null ? String(raw.work_status) : undefined) as string | undefined;
     out.push({ yandexId: id, name, phone, balance, workStatus });
   }
+
+  if (onParseDiagnostics) {
+    const diagnostics: ListParkDriversDiagnostics = {
+      rawDriverProfilesLength: rawList.length,
+      parsedDriversCount: out.length,
+    };
+    if (rawList.length > 0 && out.length === 0) {
+      diagnostics.firstItemSample = JSON.stringify(rawList[0]).slice(0, 500);
+      if (onEmptyResponseKeys) {
+        const first = rawList[0] as Record<string, unknown>;
+        onEmptyResponseKeys(["firstItemKeys:" + Object.keys(first).join(",")]);
+      }
+    }
+    onParseDiagnostics(diagnostics);
+  } else if (rawList.length > 0 && out.length === 0 && onEmptyResponseKeys) {
+    const first = rawList[0] as Record<string, unknown>;
+    onEmptyResponseKeys(["firstItemKeys:" + Object.keys(first).join(",")]);
+  }
+
   return out;
 }
 

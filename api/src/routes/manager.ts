@@ -274,6 +274,22 @@ export async function managerRoutes(app: FastifyInstance) {
               hint: "Fleet вернул 200, но список пуст — проверьте структуру ответа по ключам выше",
             });
           },
+          onParseDiagnostics: (d) => {
+            req.log.info({
+              step: "drivers_list",
+              source: "fleet",
+              rawDriverProfilesLength: d.rawDriverProfilesLength,
+              parsedDriversCount: d.parsedDriversCount,
+            });
+            if (d.firstItemSample != null) {
+              req.log.warn({
+                step: "drivers_list",
+                source: "fleet",
+                firstItemSample: d.firstItemSample,
+                hint: "Элементы пришли, но ни один не прошёл парсинг — см. firstItemSample",
+              });
+            }
+          },
         });
         req.log.info({
           step: "drivers_list",
