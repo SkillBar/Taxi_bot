@@ -171,7 +171,12 @@ export async function managerRoutes(app: FastifyInstance) {
       where: { id: managerId },
       data: { yandexApiKey: apiKey, yandexParkId: parkId, yandexClientId: clientId },
     });
-    app.log.info({ step: "connect-fleet:success", managerId, parkId });
+    app.log.info({
+      step: "connect-fleet:success",
+      managerId,
+      parkId: parkId.slice(0, 8) + (parkId.length > 8 ? "***" : ""),
+      clientIdPrefix: clientId.slice(0, 20) + (clientId.length > 20 ? "..." : ""),
+    });
     return reply.send({ success: true, message: "Парк успешно подключён!" });
   });
 
@@ -242,14 +247,31 @@ export async function managerRoutes(app: FastifyInstance) {
    */
   app.get("/drivers", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
-    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    if (!managerId) {
+      req.log.warn({ step: "drivers_list", error: "manager_not_found" });
+      return reply.status(401).send({ error: "Manager not found" });
+    }
 
     const manager = await prisma.manager.findUnique({ where: { id: managerId } });
     const creds = manager ? managerFleetCreds(manager) : null;
+    const hasCreds = Boolean(creds);
+
+    req.log.info({
+      step: "drivers_list",
+      managerId,
+      hasCreds,
+      parkId: creds ? `${creds.parkId.slice(0, 4)}***` : null,
+    });
 
     if (creds) {
       try {
         const parkDrivers = await listParkDrivers(creds);
+        req.log.info({
+          step: "drivers_list",
+          source: "fleet",
+          parkDriversCount: parkDrivers.length,
+          ...(parkDrivers.length === 0 && { hint: "fleet_returned_empty_list_check_park_id_and_key_scope" }),
+        });
         const drivers = parkDrivers.map((d) => ({
           id: d.yandexId,
           yandexDriverId: d.yandexId,
@@ -260,14 +282,25 @@ export async function managerRoutes(app: FastifyInstance) {
         }));
         return reply.send({ drivers });
       } catch (e) {
-        app.log.error(e);
-        return reply.status(502).send({ error: "Yandex Fleet API error", message: (e as Error).message });
+        const msg = e instanceof Error ? e.message : String(e);
+        req.log.error({
+          step: "drivers_list",
+          source: "fleet",
+          error: "listParkDrivers_failed",
+          message: msg.slice(0, 300),
+        });
+        return reply.status(502).send({ error: "Yandex Fleet API error", message: msg });
       }
     }
 
     const links = await prisma.driverLink.findMany({
       where: { managerId },
       orderBy: { createdAt: "desc" },
+    });
+    req.log.info({
+      step: "drivers_list",
+      source: "driver_link",
+      linksCount: links.length,
     });
     const drivers = links.map((l) => ({
       id: l.id,

@@ -10,7 +10,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getYandexOAuthAuthorizeUrl } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -35,7 +35,7 @@ export interface AgentHomeScreenProps {
   onRegisterDriver: () => void;
   onRegisterCourier: () => void;
   onOpenManager?: () => void;
-  /** Только список исполнителей и кнопки «Добавить агента» / «Добавить курьера» внизу (для таба «Главная»). */
+  /** Только список исполнителей и кнопки «Добавить водителя» / «Добавить курьера» внизу (для таба «Главная»). */
   mainTabOnly?: boolean;
 }
 
@@ -50,6 +50,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [linkError, setLinkError] = useState<string | null>(null);
   const [yandexOAuthLoading, setYandexOAuthLoading] = useState(false);
   const [yandexOAuthError, setYandexOAuthError] = useState<string | null>(null);
+  const [hasFleet, setHasFleet] = useState<boolean | null>(null);
 
   useEffect(() => {
     getAgentsMe()
@@ -74,6 +75,12 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
   useEffect(() => {
     fetchDrivers();
+  }, []);
+
+  useEffect(() => {
+    getManagerMe()
+      .then((data) => setHasFleet(data?.hasFleet ?? false))
+      .catch(() => setHasFleet(false));
   }, []);
 
   const handleYandexOAuth = async () => {
@@ -176,7 +183,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 <Spinner size="l" />
               </div>
             ) : drivers.length === 0 ? (
-              <Placeholder header="Исполнители не найдены" description="Добавьте водителя ниже или обратитесь к администратору" />
+              <Placeholder
+                header="Исполнители не найдены"
+                description={
+                  hasFleet === false
+                    ? "Подключите парк (API-ключ Fleet) в онбординге или в Кабинете, чтобы видеть список водителей парка."
+                    : "Добавьте водителя ниже или обратитесь к администратору."
+                }
+              />
             ) : (
               drivers.filter((d) => d?.id).map((driver) => (
                 <Cell
@@ -249,7 +263,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           <Section>
             <div style={{ padding: "8px 16px 16px" }}>
               <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }} style={{ marginBottom: 8 }}>
-                Добавить агента
+                Добавить водителя
               </Button>
               <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); onRegisterCourier(); }} style={{ marginBottom: 8 }}>
                 Добавить курьера

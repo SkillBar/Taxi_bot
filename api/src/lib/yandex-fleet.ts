@@ -262,9 +262,30 @@ export async function findDriverByPhone(phone: string, creds?: FleetCredentials 
   return { yandexId: id, name, phone: phoneVal, balance, workStatus };
 }
 
+type DriverProfileItem = {
+  driver_profile?: { id?: string; work_status?: string; first_name?: string; last_name?: string; phones?: unknown };
+  accounts?: Array<{ balance?: string }>;
+};
+
+/** Достаём массив driver_profiles из ответа Fleet: либо верхний уровень, либо parks[].driver_profiles. */
+function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
+  if (!data || typeof data !== "object") return [];
+  const o = data as Record<string, unknown>;
+  if (Array.isArray(o.driver_profiles)) return o.driver_profiles as DriverProfileItem[];
+  if (Array.isArray(o.parks)) {
+    const out: DriverProfileItem[] = [];
+    for (const park of o.parks as Array<{ driver_profiles?: DriverProfileItem[] }>) {
+      if (Array.isArray(park?.driver_profiles)) out.push(...park.driver_profiles);
+    }
+    return out;
+  }
+  return [];
+}
+
 /**
  * Список всех водителей парка из Fleet API (driver-profiles/list по park.id).
  * Документация: https://fleet.yandex.ru/docs/api/ru/
+ * Поддерживаются форматы ответа: { driver_profiles: [] } и { parks: [{ driver_profiles: [] }] }.
  */
 export async function listParkDrivers(
   creds: FleetCredentials,
@@ -281,26 +302,24 @@ export async function listParkDrivers(
     offset,
   };
 
-  const res = await fetch(DRIVER_PROFILES_LIST, {
-    method: "POST",
-    headers: headersFrom(creds),
-    body: JSON.stringify(body),
-  });
+  const res = await fetchWithRetry(() =>
+    fetch(DRIVER_PROFILES_LIST, {
+      method: "POST",
+      headers: headersFrom(creds),
+      body: JSON.stringify(body),
+    })
+  );
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Yandex Fleet API error ${res.status}: ${err}`);
+    throw new Error(`Yandex Fleet API error ${res.status}: ${err.slice(0, 500)}`);
   }
 
-  const data = (await res.json()) as {
-    driver_profiles?: Array<{
-      driver_profile?: { id?: string; work_status?: string; first_name?: string; last_name?: string; phones?: unknown };
-      accounts?: Array<{ balance?: string }>;
-    }>;
-  };
+  const data = (await res.json()) as unknown;
+  const rawList = parseDriverProfilesList(data);
 
   const out: YandexDriverProfile[] = [];
-  for (const d of data.driver_profiles || []) {
+  for (const d of rawList) {
     const profile = d.driver_profile;
     const id = profile?.id;
     if (!id) continue;
