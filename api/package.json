@@ -10,6 +10,7 @@
     "check:no-nullish": "node scripts/check-no-nullish.cjs",
     "start": "node _dist/index.js",
     "db:seed": "tsx prisma/seed.ts",
+    "db:apply-production": "prisma db execute --file prisma/vercel-production-apply.sql",
     "postinstall": "node scripts/patch-fastify-nullish.cjs"
   },
   "prisma": {
