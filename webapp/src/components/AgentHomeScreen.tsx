@@ -53,6 +53,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [yandexOAuthLoading, setYandexOAuthLoading] = useState(false);
   const [yandexOAuthError, setYandexOAuthError] = useState<string | null>(null);
   const [hasFleet, setHasFleet] = useState<boolean | null>(null);
+  const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     getAgentsMe()
@@ -103,7 +104,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
   useEffect(() => {
     getManagerMe()
-      .then((data) => setHasFleet(data?.hasFleet ?? false))
+      .then((data) => {
+        setHasFleet(data?.hasFleet ?? false);
+        if (data?.welcomeMessage) setWelcomeMessage(data.welcomeMessage);
+      })
       .catch(() => setHasFleet(false));
   }, []);
 
@@ -174,6 +178,30 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           paddingBottom: 24,
         }}
       >
+        {welcomeMessage && (
+          <div
+            style={{
+              padding: "10px 16px",
+              margin: "0 0 8px",
+              background: "var(--tg-theme-button-color, #2481cc)",
+              color: "#fff",
+              fontSize: 13,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+            }}
+          >
+            <span style={{ flex: 1 }}>{welcomeMessage}</span>
+            <button
+              type="button"
+              onClick={() => setWelcomeMessage(null)}
+              style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer", padding: "0 4px", fontSize: 18, lineHeight: 1 }}
+              aria-label="Закрыть"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {!mainTabOnly && (
           <div style={{ padding: "12px 16px", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", color: "var(--tg-theme-text-color, #000)" }}>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #333)", margin: 0 }}>

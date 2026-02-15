@@ -8,6 +8,7 @@ import {
   fleetStatusToRussian,
   type FleetCredentials,
 } from "../lib/yandex-fleet.js";
+import { getManagerFleetCreds } from "./manager.js";
 
 export async function draftRoutes(app: FastifyInstance) {
   // Get or create current in_progress draft for agent
@@ -193,14 +194,7 @@ export async function draftRoutes(app: FastifyInstance) {
       const manager = await prisma.manager.findUnique({
         where: { telegramId: telegramUserId },
       });
-      const creds: FleetCredentials | null =
-        manager?.yandexApiKey && manager?.yandexParkId && manager?.yandexClientId
-          ? {
-              apiKey: manager.yandexApiKey,
-              parkId: manager.yandexParkId,
-              clientId: manager.yandexClientId,
-            }
-          : null;
+      const creds = manager ? await getManagerFleetCreds(manager.id) : null;
       if (creds) {
         try {
           const body = buildDriverProfileBodyFromDraft(draft, {

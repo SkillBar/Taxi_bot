@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import { Input } from "@telegram-apps/telegram-ui";
 import { getAgentsMe } from "../api";
-import { getManagerMe, connectFleet } from "../lib/api";
+import { getManagerMe, connectFleet, attachDefaultFleet, registerByPhone } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage, noConnectionMessage } from "../lib/stages";
 
@@ -35,11 +35,91 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contactSent, setContactSent] = useState(false);
+  const [phoneInput, setPhoneInput] = useState("");
   const [apiKey, setApiKey] = useState("");
   /** Показывать поле ID парка только после ошибки «parkId required» (редкий fallback). */
   const [showParkIdFallback, setShowParkIdFallback] = useState(false);
   const [parkIdInput, setParkIdInput] = useState("");
+  /** Показывать форму API-ключа только если преднастроенный парк не задан (attach-default-fleet вернул 400). */
+  const [needApiKeyForm, setNeedApiKeyForm] = useState(false);
+  const attachTriedRef = useRef(false);
   const errorBlockRef = useRef<HTMLDivElement>(null);
+
+  /** После того как бот получил контакт и вызвал set-phone, проверяем /me и при hasFleet открываем кабинет. */
+  const checkMeAndEnterCabinet = useCallback(async () => {
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    await delay(500);
+    try {
+      const me = await getManagerMe();
+      if (me?.hasFleet) {
+        onLinked();
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    await delay(1200);
+    try {
+      const me = await getManagerMe();
+      if (me?.hasFleet) {
+        onLinked();
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, [onLinked]);
+
+  const handleConfirmContact = useCallback(async () => {
+    hapticImpact("light");
+    const phone = phoneInput.trim().replace(/\s/g, "");
+    if (phone.length >= 10) {
+      setError(null);
+      setLoading(true);
+      try {
+        const res = await registerByPhone(phone);
+        setLoading(false);
+        if (res?.hasFleet) {
+          onLinked();
+          return;
+        }
+        setContactSent(true);
+        setStep("fleet");
+      } catch (e: unknown) {
+        setLoading(false);
+        const err = e as { response?: { status?: number; data?: { message?: string; notInBase?: boolean } } };
+        if (err.response?.status === 403 && err.response?.data?.notInBase) {
+          setError("Вашего номера нет в базе агентов. Обратитесь к администратору для регистрации.");
+        } else {
+          setError(err.response?.data?.message ?? "Не удалось привязать номер. Попробуйте снова или перейдите к вводу ключа.");
+        }
+        setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+      }
+      return;
+    }
+    const wa = window.Telegram?.WebApp;
+    if (!wa?.requestContact) {
+      setError("Введите номер (10+ цифр) или поделитесь контактом в Telegram.");
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    wa.requestContact(async (sent) => {
+      if (sent) {
+        // Бот получил контакт и вызовет set-phone; проверяем /me и при успехе — в кабинет в 1 клик
+        const entered = await checkMeAndEnterCabinet();
+        setLoading(false);
+        if (entered) return;
+        setContactSent(true);
+        setStep("fleet");
+        setError("Вашего номера нет в базе агентов. Обратитесь к администратору для регистрации.");
+      } else {
+        setLoading(false);
+        setError("Нужно поделиться контактом или ввести номер вручную.");
+      }
+    });
+  }, [phoneInput, onLinked, checkMeAndEnterCabinet]);
 
   const handleRequestContact = useCallback(() => {
     hapticImpact("light");
@@ -188,16 +268,44 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     if (step !== "contact" || !mainBtn) return;
     mainBtn.setText("Подтвердить номер");
     mainBtn.show();
-    mainBtn.onClick(handleRequestContact);
+    mainBtn.onClick(handleConfirmContact);
     return () => {
-      mainBtn.offClick?.(handleRequestContact);
+      mainBtn.offClick?.(handleConfirmContact);
       mainBtn.hide();
     };
-  }, [step, handleRequestContact]);
+  }, [step, handleConfirmContact]);
 
-  // MainButton на шаге fleet: стандартная кнопка внизу
+  // Автоматическая привязка преднастроенного парка при переходе на шаг fleet (только номер — ключ не вводится).
   useEffect(() => {
-    if (step !== "fleet") return;
+    if (step !== "fleet" || needApiKeyForm || attachTriedRef.current) return;
+    attachTriedRef.current = true;
+    setLoading(true);
+    setError(null);
+    attachDefaultFleet()
+      .then((res) => {
+        if (res?.success) {
+          onLinked();
+          return;
+        }
+        setNeedApiKeyForm(true);
+      })
+      .catch((e: unknown) => {
+        const err = e as { response?: { status?: number } };
+        if (err.response?.status === 400) {
+          setNeedApiKeyForm(true);
+        } else {
+          setError(
+            formatStageError("attach-default-fleet", "/api/manager/attach-default-fleet", (e instanceof Error ? e.message : String(e)) || "Не удалось подключить парк.")
+          );
+          setNeedApiKeyForm(true);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [step, needApiKeyForm, onLinked]);
+
+  // MainButton на шаге fleet: только когда нужен ручной ввод API-ключа.
+  useEffect(() => {
+    if (step !== "fleet" || !needApiKeyForm) return;
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (!mainBtn) return;
     mainBtn.setText("Подключить");
@@ -207,9 +315,9 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       mainBtn.offClick?.(handleConnectFleet);
       mainBtn.hide();
     };
-  }, [step, handleConnectFleet]);
+  }, [step, needApiKeyForm, handleConnectFleet]);
 
-  // ——— Шаг 2: подключение Yandex Fleet ———
+  // ——— Шаг 2: подключение Yandex Fleet (сначала авто-привязка парка из конфига, при 400 — форма API-ключа) ———
   if (step === "fleet") {
     return (
       <AppRoot>
@@ -238,11 +346,18 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color, #000000)" }}>
               Добро пожаловать в кабинет агента таксопарка!
             </h1>
-            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Введите API-ключ от вашего таксопарка (Яндекс Про → Настройки → API-доступ). ID парка подставится автоматически.
-            </p>
+            {!needApiKeyForm ? (
+              <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
+                Подключаем ваш парк…
+              </p>
+            ) : (
+              <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
+                Введите API-ключ от вашего таксопарка (Яндекс Про → Настройки → API-доступ). ID парка подставится автоматически.
+              </p>
+            )}
           </div>
 
+          {needApiKeyForm && (
           <div style={{ marginBottom: 16 }}>
             {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
               <>
@@ -318,6 +433,8 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             </div>
           )}
 
+          )}
+
           {error && (
             <div
               ref={errorBlockRef}
@@ -368,8 +485,43 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             Добро пожаловать в кабинет агента такси!
           </h1>
           <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-            Подтвердите номер телефона, с которого вы зарегистрированы как агент таксопарка.
+            Введите номер или поделитесь контактом — парк подставится автоматически.
           </p>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
+            <>
+              <label style={{ display: "block", fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--tg-theme-text-color, #000)" }}>
+                Номер телефона
+              </label>
+              <input
+                type="tel"
+                placeholder="89996697111 или +7 999 666 97 11"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "10px 12px",
+                  fontSize: 16,
+                  border: "1px solid var(--tg-theme-hint-color, #ccc)",
+                  borderRadius: 8,
+                  background: "var(--tg-theme-bg-color, #fff)",
+                  color: "var(--tg-theme-text-color, #000)",
+                }}
+              />
+            </>
+          ) : (
+            <Input
+              header="Номер телефона"
+              placeholder="89996697111 или +7 999 666 97 11"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput((e.target as HTMLInputElement).value)}
+              disabled={loading}
+            />
+          )}
         </div>
 
         {loading && (

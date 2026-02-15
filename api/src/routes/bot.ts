@@ -5,34 +5,34 @@
 
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
-import { config } from "../config.js";
 import { requireBotSecret } from "../lib/auth.js";
 import { linkAgentByTelegramId } from "../services/agent-link.js";
+import { applyPhoneToManager, normalizePhoneForDb } from "./manager.js";
 
 export async function botRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireBotSecret);
 
   /**
    * POST /api/bot/manager/set-phone
-   * Сохранить номер телефона менеджера (при получении контакта в боте).
+   * Сохранить номер менеджера и привязать к дефолтному парку (бот вызвал при message:contact).
+   * После этого Mini App по GET /me увидит hasFleet и откроет кабинет в 1 клик.
    */
   app.post<{ Body: { telegramUserId?: string; phone?: string } }>("/manager/set-phone", async (req, reply) => {
     const body = req.body as { telegramUserId?: string; phone?: string };
     const telegramUserId = body?.telegramUserId?.trim();
-    const phone = body?.phone?.trim();
-    if (!telegramUserId || !phone) {
+    const phoneRaw = body?.phone?.trim();
+    if (!telegramUserId || !phoneRaw) {
       return reply.status(400).send({ error: "telegramUserId and phone required" });
     }
+    const phone = normalizePhoneForDb(phoneRaw);
     if (phone.length < 10) return reply.status(400).send({ error: "Invalid phone" });
 
-    const manager = await prisma.manager.findUnique({ where: { telegramId: telegramUserId } });
-    if (!manager) {
-      await prisma.manager.create({ data: { telegramId: telegramUserId, phone } });
-    } else {
-      await prisma.manager.update({ where: { id: manager.id }, data: { phone } });
+    const result = await applyPhoneToManager(telegramUserId, phone, req.server);
+    req.log.info({ step: "bot/manager/set-phone", telegramUserId, managerId: result.managerId, hasFleet: result.hasFleet, notInBase: result.notInBase });
+    if (result.notInBase) {
+      return reply.send({ ok: true, hasFleet: false, notInBase: true });
     }
-    req.log.info({ step: "bot/manager/set-phone", telegramUserId, phoneSaved: true });
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, hasFleet: result.hasFleet });
   });
 
   /**

@@ -22,15 +22,30 @@ model Agent {
   drafts         RegistrationDraft[]
 }
 
+model FleetPark {
+  id          Int      @id @default(autoincrement())
+  parkId      String   // UUID парка в Fleet
+  clientId    String   // taxi/park/{parkId}
+  apiKeyEnc   String   // API-ключ (зашифрован, см. lib/encrypt.ts)
+  displayName String?  // имя парка для админки/UI
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  managers Manager[]
+}
+
 model Manager {
-  id                String   @id @default(cuid())
-  telegramId        String?  @unique // Telegram user ID менеджера
-  name              String?  // из Telegram: first_name + last_name
-  telegramUsername  String?  // @username из Telegram
-  phone             String?  // номер телефона (если передан отдельно)
-  yandexApiKey      String?  // API-ключ Fleet, введённый агентом
-  yandexParkId      String?  // ID парка
-  yandexClientId    String?  // taxi/park/{parkId}
+  id                String    @id @default(cuid())
+  telegramId        String?   @unique // Telegram user ID менеджера
+  name              String?   // из Telegram: first_name + last_name
+  telegramUsername  String?   // @username из Telegram
+  phone             String?  // номер в E.164 или 89996697111
+  fleetParkId       Int?      // приоритет: парк из админки; связь с FleetPark
+  fleetPark         FleetPark? @relation(fields: [fleetParkId], references: [id], onDelete: SetNull)
+  yandexApiKey      String?   // legacy: ключ, введённый агентом вручную
+  yandexParkId      String?   // legacy: ID парка
+  yandexClientId    String?   // legacy: taxi/park/{parkId}
+  createdAt         DateTime @default(now())
   drivers           DriverLink[]
 }
 

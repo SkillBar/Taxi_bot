@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { prisma } from "../db.js";
 import { validateInitData, parseInitData } from "../lib/telegram.js";
 import { config } from "../config.js";
+import { decryptCiphertext, encryptPlaintext } from "../lib/encrypt.js";
 import {
   findDriverByPhone,
   getDriversStatus,
@@ -96,8 +97,163 @@ function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId:
   return { apiKey: manager.yandexApiKey, parkId: manager.yandexParkId, clientId: manager.yandexClientId };
 }
 
+/** Нормализация номера для поиска в БД: только цифры (без +). Экспорт для bot. */
+export function normalizePhoneForDb(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 10 && digits.startsWith("8")) return "7" + digits.slice(1);
+  if (digits.length >= 10 && digits.startsWith("7")) return digits;
+  return digits;
+}
+
+/** Результат привязки номера: notInBase = true, если номера нет в базе агентов (доступ не даём). */
+export type ApplyPhoneResult = { managerId: string; hasFleet: boolean; notInBase?: false } | { managerId?: string; hasFleet: false; notInBase: true };
+
+/**
+ * Привязать номер к менеджеру только если номер уже есть в базе (Manager.phone).
+ * Если номера нет — не создаём запись, не даём доступ; возвращаем notInBase: true.
+ */
+export async function applyPhoneToManager(
+  telegramUserId: string,
+  phone: string,
+  app: FastifyInstance
+): Promise<ApplyPhoneResult> {
+  const defaultPark = await ensureDefaultFleetPark(app);
+  const normalized = normalizePhoneForDb(phone);
+  const byTelegram = await prisma.manager.findUnique({ where: { telegramId: telegramUserId } });
+  const byPhone = await prisma.manager.findFirst({ where: { phone: normalized } });
+
+  if (!byPhone) {
+    if (byTelegram) {
+      await prisma.manager.update({
+        where: { id: byTelegram.id },
+        data: { phone: normalized },
+      });
+      app.log.info({ step: "applyPhoneToManager", action: "phone_updated_not_in_base", managerId: byTelegram.id });
+    } else {
+      app.log.info({ step: "applyPhoneToManager", action: "not_in_base", phonePrefix: normalized.slice(0, 4) + "***" });
+    }
+    return { hasFleet: false, notInBase: true };
+  }
+
+  let manager: { id: string; fleetParkId: number | null; yandexApiKey: string | null; yandexParkId: string | null; yandexClientId: string | null };
+  if (byTelegram && byPhone.id !== byTelegram.id) {
+    await prisma.driverLink.deleteMany({ where: { managerId: byTelegram.id } });
+    await prisma.manager.delete({ where: { id: byTelegram.id } });
+    manager = await prisma.manager.update({
+      where: { id: byPhone.id },
+      data: { telegramId: telegramUserId, phone: byPhone.phone ?? normalized, fleetParkId: byPhone.fleetParkId ?? defaultPark?.id ?? null },
+    });
+    app.log.info({ step: "applyPhoneToManager", action: "merged", managerId: manager.id });
+  } else {
+    manager = await prisma.manager.update({
+      where: { id: byPhone.id },
+      data: { telegramId: telegramUserId, phone: byPhone.phone ?? normalized, fleetParkId: byPhone.fleetParkId ?? defaultPark?.id ?? null },
+    });
+    app.log.info({ step: "applyPhoneToManager", action: "linked_telegram", managerId: manager.id });
+  }
+  const hasFleet = Boolean(manager.fleetParkId ?? (manager.yandexApiKey && manager.yandexParkId && manager.yandexClientId));
+  return { managerId: manager.id, hasFleet };
+}
+
+const DEFAULT_PARK_DISPLAY_NAME = "Мой Таксопарк";
+
+/** Возвращает дефолтный парк (по displayName или первый). Создаёт из env, если ещё нет. Экспорт для bot/set-phone. */
+export async function ensureDefaultFleetPark(app: FastifyInstance): Promise<{ id: number; parkId: string; clientId: string; apiKeyEnc: string } | null> {
+  const parkId = config.yandexParkId?.trim();
+  const clientId = config.yandexClientId?.trim();
+  const apiKey = config.yandexApiKey?.trim();
+  if (!parkId || !clientId || !apiKey) return null;
+  let park = await prisma.fleetPark.findFirst({ where: { displayName: DEFAULT_PARK_DISPLAY_NAME } });
+  if (park) return park;
+  park = await prisma.fleetPark.findFirst({ orderBy: { id: "asc" } });
+  if (park) return park;
+  park = await prisma.fleetPark.create({
+    data: {
+      parkId,
+      clientId,
+      apiKeyEnc: encryptPlaintext(apiKey),
+      displayName: DEFAULT_PARK_DISPLAY_NAME,
+    },
+  });
+  app.log.info({ step: "ensureDefaultFleetPark", created: park.id, parkId: park.parkId.slice(0, 8) + "***" });
+  return park;
+}
+
+/** Creds из FleetPark (приоритет) или из полей Manager (legacy). Экспорт для draft.ts. */
+export async function getManagerFleetCreds(managerId: string): Promise<FleetCredentials | null> {
+  const manager = await prisma.manager.findUnique({
+    where: { id: managerId },
+    include: { fleetPark: true },
+  });
+  if (!manager) return null;
+  if (manager.fleetPark) {
+    try {
+      const apiKey = decryptCiphertext(manager.fleetPark.apiKeyEnc);
+      return {
+        parkId: manager.fleetPark.parkId,
+        clientId: manager.fleetPark.clientId,
+        apiKey,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+  return managerFleetCreds(manager);
+}
+
 export async function managerRoutes(app: FastifyInstance) {
-  app.addHook("preHandler", requireManager);
+  app.addHook("preHandler", async (req, reply) => {
+    const path = (req as { url?: string }).url ?? "";
+    if (path.includes("register-by-phone")) {
+      const initData = (req.headers["x-telegram-init-data"] as string) || "";
+      if (!initData) {
+        reply.status(401).send({ error: "Missing x-telegram-init-data", message: "Откройте приложение из Telegram." });
+        return;
+      }
+      if (!validateInitData(initData, config.botToken, 86400)) {
+        reply.status(401).send({ error: "Invalid initData", message: "Неверная или устаревшая подпись." });
+        return;
+      }
+      const { user } = parseInitData(initData);
+      if (!user?.id) {
+        reply.status(401).send({ error: "User not in initData", message: "В initData отсутствует user." });
+        return;
+      }
+      (req as FastifyRequest & { telegramUserId?: number }).telegramUserId = user.id;
+      (req as FastifyRequest & { telegramUser?: { first_name?: string; last_name?: string } }).telegramUser = user;
+      return;
+    }
+    await requireManager(req, reply);
+  });
+
+  /**
+   * POST /api/manager/register-by-phone
+   * Body: { phoneNumber: string }
+   * Находит или создаёт Manager по номеру / telegramUserId, привязывает к дефолтному FleetPark.
+   * Вызывается после шага «подтвердить номер» в онбординге — ключи подставляются автоматом.
+   */
+  app.post<{ Body: { phoneNumber?: string } }>("/register-by-phone", async (req, reply) => {
+    const telegramUserId = (req as FastifyRequest & { telegramUserId?: number }).telegramUserId;
+    if (telegramUserId == null) return reply.status(401).send({ error: "telegramUserId required" });
+
+    const raw = (req.body as { phoneNumber?: string })?.phoneNumber;
+    const phone = raw != null ? normalizePhoneForDb(String(raw).trim()) : "";
+    if (!phone || phone.length < 10) {
+      return reply.status(400).send({ error: "phoneNumber required", message: "Укажите номер телефона (10+ цифр)." });
+    }
+
+    const telegramIdStr = String(telegramUserId);
+    const result = await applyPhoneToManager(telegramIdStr, phone, app);
+    app.log.info({ step: "register-by-phone", managerId: result.managerId, hasFleet: result.hasFleet, notInBase: result.notInBase });
+    if (result.notInBase) {
+      return reply.status(403).send({
+        error: "not_in_base",
+        message: "Вашего номера нет в базе агентов. Обратитесь к администратору для регистрации.",
+        notInBase: true,
+      });
+    }
+    return reply.send({ success: true, hasFleet: result.hasFleet, managerId: result.managerId });
+  });
 
   /**
    * GET /api/manager/me
@@ -108,9 +264,17 @@ export async function managerRoutes(app: FastifyInstance) {
     const telegramUserId = (req as FastifyRequest & { telegramUserId?: number }).telegramUserId;
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     let hasFleet = false;
+    let welcomeMessage: string | null = null;
     if (managerId) {
       const manager = await prisma.manager.findUnique({ where: { id: managerId } });
-      hasFleet = Boolean(manager?.yandexApiKey);
+      hasFleet = Boolean(manager?.fleetParkId ?? (manager?.yandexApiKey && manager?.yandexParkId && manager?.yandexClientId));
+      if (manager?.createdAt) {
+        const createdAgo = Date.now() - manager.createdAt.getTime();
+        if (createdAgo < 5 * 60 * 1000) {
+          welcomeMessage =
+            "Ваш номер не был в базе. Вы подключены к парку по умолчанию. Обратитесь к администратору для привязки к другому парку.";
+        }
+      }
     }
     app.log.info({ step: "manager/me", telegramUserId, managerId, hasFleet });
     return reply.send({
@@ -118,6 +282,7 @@ export async function managerRoutes(app: FastifyInstance) {
       firstName: user?.first_name != null ? user.first_name : null,
       lastName: user?.last_name != null ? user.last_name : null,
       hasFleet,
+      ...(welcomeMessage && { welcomeMessage }),
     });
   });
 
@@ -232,6 +397,45 @@ export async function managerRoutes(app: FastifyInstance) {
   });
 
   /**
+   * POST /api/manager/attach-default-fleet
+   * Привязывает к текущему менеджеру дефолтный FleetPark (id=1 из env). Без ввода ключа.
+   */
+  app.post("/attach-default-fleet", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+
+    const defaultPark = await ensureDefaultFleetPark(app);
+    if (!defaultPark) {
+      app.log.info({ step: "attach-default-fleet", reason: "default_not_configured" });
+      return reply.status(400).send({
+        error: "default_fleet_not_configured",
+        message: "Преднастроенный парк не задан. Введите API-ключ вручную.",
+      });
+    }
+
+    try {
+      const apiKey = decryptCiphertext(defaultPark.apiKeyEnc);
+      const validation = await validateFleetCredentials(apiKey, defaultPark.parkId, defaultPark.clientId);
+      if (!validation.ok) {
+        app.log.warn({ step: "attach-default-fleet", fleetStatus: validation.statusCode });
+        return reply.status(400).send({
+          error: "default_fleet_invalid",
+          message: fleetStatusToRussian(validation.statusCode),
+        });
+      }
+    } catch (_) {
+      return reply.status(500).send({ error: "decrypt_failed", message: "Ошибка чтения ключа парка." });
+    }
+
+    await prisma.manager.update({
+      where: { id: managerId },
+      data: { fleetParkId: defaultPark.id },
+    });
+    app.log.info({ step: "attach-default-fleet:success", managerId, parkId: defaultPark.parkId.slice(0, 8) + "***" });
+    return reply.send({ success: true, message: "Парк подключён!" });
+  });
+
+  /**
    * POST /api/manager/link-driver
    * Body: { phone: string }
    * Ищет водителя в Яндексе по телефону, создаёт DriverLink для текущего менеджера.
@@ -240,8 +444,7 @@ export async function managerRoutes(app: FastifyInstance) {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
-    const manager = await prisma.manager.findUnique({ where: { id: managerId } });
-    const creds = manager ? managerFleetCreds(manager) : null;
+    const creds = await getManagerFleetCreds(managerId);
     if (!creds) {
       return reply.status(400).send({ error: "Fleet not connected", message: "Сначала подключите Yandex Fleet (API-ключ и ID парка)." });
     }
@@ -303,8 +506,7 @@ export async function managerRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: "Manager not found" });
     }
 
-    const manager = await prisma.manager.findUnique({ where: { id: managerId } });
-    const creds = manager ? managerFleetCreds(manager) : null;
+    const creds = await getManagerFleetCreds(managerId);
     const hasCreds = Boolean(creds);
 
     req.log.info({
@@ -447,7 +649,7 @@ export async function managerRoutes(app: FastifyInstance) {
         if (managerId && isAuthError) {
           await prisma.manager.update({
             where: { id: managerId },
-            data: { yandexApiKey: null, yandexParkId: null, yandexClientId: null },
+            data: { fleetParkId: null, yandexApiKey: null, yandexParkId: null, yandexClientId: null },
           });
           return reply.send({
             drivers: [],
@@ -455,7 +657,7 @@ export async function managerRoutes(app: FastifyInstance) {
               source: "fleet",
               count: 0,
               credsInvalid: true,
-              hint: "Ключ или парк изменились. Подключите парк заново: введите API-ключ.",
+              hint: "Парк изменился или ключ недействителен. Подключите парк заново.",
             },
           });
         }

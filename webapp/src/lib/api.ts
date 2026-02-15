@@ -30,9 +30,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-/** Данные менеджера (имя + подключён ли Fleet). */
-export async function getManagerMe(): Promise<{ hasFleet: boolean }> {
-  const res = await api.get<{ hasFleet: boolean }>("/api/manager/me");
+/** Данные менеджера (имя + подключён ли Fleet). welcomeMessage — если номер не был в базе и только что подключили. */
+export async function getManagerMe(): Promise<{ hasFleet: boolean; welcomeMessage?: string }> {
+  const res = await api.get<{ hasFleet: boolean; welcomeMessage?: string }>("/api/manager/me");
+  return res.data;
+}
+
+/** Регистрация/привязка по номеру: находит или создаёт менеджера, привязывает к дефолтному парку. */
+export async function registerByPhone(phoneNumber: string): Promise<{ success: boolean; hasFleet: boolean; managerId?: string }> {
+  const res = await api.post<{ success: boolean; hasFleet: boolean; managerId?: string }>("/api/manager/register-by-phone", {
+    phoneNumber: phoneNumber.trim(),
+  });
+  return res.data;
+}
+
+/** Привязать к менеджеру преднастроенный парк из конфига (только номер подтверждён — ключ не вводится). */
+export async function attachDefaultFleet(): Promise<{ success: boolean }> {
+  const res = await api.post<{ success: boolean }>("/api/manager/attach-default-fleet");
   return res.data;
 }
 
