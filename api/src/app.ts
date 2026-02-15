@@ -1,9 +1,12 @@
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+const DEBUG_LOG_PATH = path.resolve(__dirname, "../../.cursor/debug.log");
 
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -44,6 +47,20 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
   app.get("/", async (_req, reply) => {
     return reply.redirect("/health", 302);
+  });
+
+  app.post("/api/debug-log", async (req, reply) => {
+    try {
+      const payload = req.body as Record<string, unknown>;
+      const line = JSON.stringify({ ...payload, timestamp: payload.timestamp ?? Date.now() }) + "\n";
+      const dir = path.dirname(DEBUG_LOG_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(DEBUG_LOG_PATH, line);
+      return reply.send({ ok: true });
+    } catch (e) {
+      req.log.warn({ debugLog: String(e) });
+      return reply.status(500).send({ ok: false });
+    }
   });
 
   await app.register(agentRoutes, { prefix: "/api/agents" });

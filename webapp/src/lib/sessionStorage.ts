@@ -4,6 +4,8 @@
  * поэтому при наличии CloudStorage (серверное хранилище TG) дублируем туда.
  */
 
+import { debugLog } from "../debugLog";
+
 const KEY = "agent_linked";
 
 type CloudStorageLike = {
@@ -28,33 +30,48 @@ function getCloudStorage(): CloudStorageLike | undefined {
 
 /** Синхронно читаем из localStorage (основной источник при первом рендере). */
 export function getLinkedSync(): boolean {
+  // #region debug log
   try {
     if (typeof window === "undefined") return false;
-    return localStorage.getItem(KEY) === "1";
-  } catch {
+    const out = localStorage.getItem(KEY) === "1";
+    debugLog({ location: "sessionStorage.ts:getLinkedSync", message: "getLinkedSync", data: { result: out, raw: localStorage.getItem(KEY) ? "set" : null }, hypothesisId: "H1" });
+    return out;
+  } catch (e) {
+    debugLog({ location: "sessionStorage.ts:getLinkedSync", message: "getLinkedSync catch", data: { err: String(e) }, hypothesisId: "H1" });
     return false;
   }
+  // #endregion
 }
 
 /** Асинхронно читаем: CloudStorage (если есть), иначе localStorage. */
 export async function getLinked(): Promise<boolean> {
+  // #region debug log
   try {
     if (typeof window === "undefined") return false;
     const cloud = getCloudStorage();
     const getVal = cloud?.get ?? cloud?.getItem;
     if (getVal) {
       const v = await Promise.resolve(getVal.call(cloud, KEY));
-      if (v === "1") return true;
-      if (v != null && String(v).trim() !== "") return false;
+      const out = v === "1" ? true : (v != null && String(v).trim() !== "" ? false : localStorage.getItem(KEY) === "1");
+      debugLog({ location: "sessionStorage.ts:getLinked", message: "getLinked", data: { result: out, cloudVal: v == null ? "null" : v === "" ? "empty" : "other" }, hypothesisId: "H1" });
+      return out;
     }
-    return localStorage.getItem(KEY) === "1";
-  } catch {
-    return localStorage.getItem(KEY) === "1";
+    const out = localStorage.getItem(KEY) === "1";
+    debugLog({ location: "sessionStorage.ts:getLinked", message: "getLinked noCloud", data: { result: out }, hypothesisId: "H1" });
+    return out;
+  } catch (e) {
+    const out = localStorage.getItem(KEY) === "1";
+    debugLog({ location: "sessionStorage.ts:getLinked", message: "getLinked catch", data: { result: out, err: String(e) }, hypothesisId: "H1" });
+    return out;
   }
+  // #endregion
 }
 
 /** Пишем в localStorage и в CloudStorage (чтобы пережить закрытие приложения). */
 export function setLinked(linked: boolean): void {
+  // #region debug log
+  debugLog({ location: "sessionStorage.ts:setLinked", message: "setLinked called", data: { linked }, hypothesisId: "H4" });
+  // #endregion
   try {
     if (typeof window === "undefined") return;
     if (linked) {

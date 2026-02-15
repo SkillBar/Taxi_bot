@@ -10,6 +10,7 @@ import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
 import { hapticImpact } from "./lib/haptic";
 import { getLinked, getLinkedSync, setLinked } from "./lib/sessionStorage";
+import { debugLog } from "./debugLog";
 
 /** Ждём появления initData (Telegram инжектирует асинхронно при открытии/восстановлении). Возвращает true, если initData есть; false при таймауте. */
 function waitForInitData(maxMs = 5000): Promise<boolean> {
@@ -122,6 +123,9 @@ export default function App() {
   // При загрузке: wasLinked из sessionStorage, ждём initData (при перезаходе TG может подставить его с задержкой), затем agents/me. Без initData не дергаем API — при wasLinked остаёмся на home и повторяем.
   useEffect(() => {
     if (screen !== "init") return;
+    // #region debug log
+    debugLog({ location: "App.tsx:initEffect", message: "init effect run", data: { screen }, hypothesisId: "H5" });
+    // #endregion
     setInitError(null);
     const syncLinked = getLinkedSync();
     if (syncLinked) setScreen("home");
@@ -132,13 +136,21 @@ export default function App() {
 
     async function runInit() {
       const wasLinked = syncLinked || (await getLinked());
+      // #region debug log
+      debugLog({ location: "App.tsx:runInit:wasLinked", message: "wasLinked", data: { wasLinked, syncLinked }, hypothesisId: "H1" });
+      // #endregion
       if (wasLinked && !syncLinked) setScreen("home");
 
       const hasInitData = await waitForInitData(initDataRetry ? 2000 : 5000);
       initDataRetry = true;
+      // #region debug log
+      debugLog({ location: "App.tsx:runInit:hasInitData", message: "waitForInitData done", data: { hasInitData }, hypothesisId: "H2" });
+      // #endregion
       if (!hasInitData) {
         if (wasLinked) {
-          // Сессия есть, но initData ещё нет (перезаход/восстановление). Не сбрасываем — остаёмся на home и повторяем.
+          // #region debug log
+          debugLog({ location: "App.tsx:runInit:noInitData", message: "noInitData wasLinked loop", data: { wasLinked }, hypothesisId: "H2" });
+          // #endregion
           setTimeout(runInit, 1500);
           return;
         }
@@ -154,15 +166,24 @@ export default function App() {
       getAgentsMe()
         .then((agentMe) => {
           setMe(agentMe);
-          setLinked(agentMe.linked);
-          if (!agentMe.linked && wasLinked && linkedCheckRetries > 0) {
+          const willRecheck = !agentMe.linked && wasLinked && linkedCheckRetries > 0;
+          // #region debug log
+          debugLog({ location: "App.tsx:getAgentsMe:then", message: "getAgentsMe success", data: { linked: agentMe.linked, willRecheck, wasLinked }, hypothesisId: "H3" });
+          // #endregion
+          if (!willRecheck) setLinked(agentMe.linked);
+          if (willRecheck) {
             linkedCheckRetries -= 1;
             setTimeout(() => {
               getAgentsMe().then((recheck) => {
                 setMe(recheck);
                 setLinked(recheck.linked);
                 if (recheck.linked) setScreen("home");
-                else setScreen((prev) => (prev === "init" || prev === "home" ? "onboarding" : prev));
+                else {
+                  // #region debug log
+                  debugLog({ location: "App.tsx:recheck", message: "recheck linked false -> onboarding", data: { recheckLinked: recheck.linked }, hypothesisId: "H3" });
+                  // #endregion
+                  setScreen((prev) => (prev === "init" || prev === "home" ? "onboarding" : prev));
+                }
                 if (recheck.linked) getManagerMe().catch(() => {});
               }).catch(() => {});
             }, 600);
@@ -170,13 +191,18 @@ export default function App() {
           }
           setScreen((prev) => {
             if (prev !== "init" && prev !== "home") return prev;
-            if (!agentMe.linked) return "onboarding";
+            if (!agentMe.linked) {
+              // #region debug log
+              debugLog({ location: "App.tsx:setScreen:onboarding", message: "main path linked false -> onboarding", data: { agentMeLinked: agentMe.linked }, hypothesisId: "H3" });
+              // #endregion
+              return "onboarding";
+            }
             return "home";
           });
           if (agentMe.linked) {
             return getManagerMe()
               .then((manager) => {
-                setScreen((prev) => (prev === "init" || prev === "home" ? (manager.hasFleet ? "home" : "onboarding") : prev));
+                setScreen((prev) => (prev === "init" || prev === "home" ? "home" : prev));
               })
               .catch((e) => {
                 setInitError({
@@ -190,12 +216,15 @@ export default function App() {
         })
         .catch((e) => {
           const status = (e as { status?: number }).status;
+          // #region debug log
+          debugLog({ location: "App.tsx:getAgentsMe:catch", message: "getAgentsMe error", data: { status, wasLinked, retriesLeft }, hypothesisId: "H2" });
+          // #endregion
           if (status === 401 && wasLinked && retriesLeft > 0) {
             retriesLeft -= 1;
             setTimeout(runInit, 800);
             return;
           }
-          if (status !== 401) setLinked(false);
+          if (status !== 401 && !wasLinked) setLinked(false);
           setInitError({
             stage: STAGES.AGENTS_ME,
             endpoint: ENDPOINTS.AGENTS_ME,
