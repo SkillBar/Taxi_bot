@@ -219,8 +219,23 @@ export default function App() {
   const startRegistration = (selectedType: "driver" | "courier") => {
     setType(selectedType);
     setScreen("loading");
-    getCurrentDraft()
+    // Сначала проверяем, что агент привязан — иначе draft API вернёт 404 и покажет «Сессия истекла»
+    getAgentsMe()
+      .then((agentsMe) => {
+        if (!agentsMe?.linked) {
+          setLinked(false);
+          setScreen("onboarding");
+          if (typeof window.Telegram?.WebApp?.showAlert === "function") {
+            window.Telegram.WebApp.showAlert("Сначала пройдите привязку номера и подключите парк.");
+          } else {
+            alert("Сначала пройдите привязку номера и подключите парк.");
+          }
+          return;
+        }
+        return getCurrentDraft();
+      })
       .then((d) => {
+        if (d === undefined) return; // уже ушли на онбординг
         if (d && d.status === "in_progress" && d.type === selectedType) {
           setDraft(d);
           setScreen("resume");
@@ -235,13 +250,34 @@ export default function App() {
         }
       })
       .catch(() => {
-        setDraft("new");
-        createDraft(selectedType)
-          .then((created) => {
-            setDraft(created);
-            setScreen("flow");
+        getAgentsMe()
+          .then((agentsMe) => {
+            if (!agentsMe?.linked) {
+              setLinked(false);
+              setScreen("onboarding");
+              if (typeof window.Telegram?.WebApp?.showAlert === "function") {
+                window.Telegram.WebApp.showAlert("Сначала пройдите привязку номера и подключите парк.");
+              } else {
+                alert("Сначала пройдите привязку номера и подключите парк.");
+              }
+              return;
+            }
+            setDraft("new");
+            createDraft(selectedType)
+              .then((created) => {
+                setDraft(created);
+                setScreen("flow");
+              })
+              .catch(handleDraftError);
           })
-          .catch(handleDraftError);
+          .catch(() => {
+            setScreen("home");
+            if (typeof window.Telegram?.WebApp?.showAlert === "function") {
+              window.Telegram.WebApp.showAlert("Не удалось проверить сессию. Проверьте интернет и откройте приложение снова.");
+            } else {
+              alert("Не удалось проверить сессию. Проверьте интернет и откройте приложение снова.");
+            }
+          });
       });
   };
 
