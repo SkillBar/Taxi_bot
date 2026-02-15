@@ -58,15 +58,26 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .catch(() => setUser(null));
   }, []);
 
+  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string } | null>(null);
+
   const fetchDrivers = async () => {
     setDriversLoadError(null);
+    setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const res = await api.get<{ drivers?: Driver[] }>("/api/manager/drivers");
+      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string } }>("/api/manager/drivers");
       const list = res?.data?.drivers;
       setDrivers(Array.isArray(list) ? list : []);
-    } catch (e) {
-      setDriversLoadError(formatStageError(STAGES.MANAGER_DRIVERS, ENDPOINTS.MANAGER_DRIVERS, buildErrorMessage(e)));
+      if (res?.data?.meta) setDriversMeta(res.data.meta);
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: { message?: string; code?: string } } };
+      const status = err.response?.status;
+      const data = err.response?.data;
+      const msg = data?.message ?? buildErrorMessage(e);
+      const code = data?.code;
+      setDriversLoadError(
+        formatStageError(STAGES.MANAGER_DRIVERS, ENDPOINTS.MANAGER_DRIVERS, [msg, code ? `Код: ${code}` : "", status ? `HTTP ${status}` : ""].filter(Boolean).join(". "))
+      );
       setDrivers([]);
     } finally {
       setDriversLoading(false);
@@ -186,9 +197,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Placeholder
                 header="Исполнители не найдены"
                 description={
-                  hasFleet === false
+                  driversMeta?.hint ??
+                  (hasFleet === false
                     ? "Подключите парк (API-ключ Fleet) в онбординге или в Кабинете, чтобы видеть список водителей парка."
-                    : "Добавьте водителя ниже или обратитесь к администратору."
+                    : "Добавьте водителя ниже или обратитесь к администратору.")
                 }
               />
             ) : (

@@ -267,7 +267,7 @@ type DriverProfileItem = {
   accounts?: Array<{ balance?: string }>;
 };
 
-/** Достаём массив driver_profiles из ответа Fleet: либо верхний уровень, либо parks[].driver_profiles. */
+/** Достаём массив driver_profiles из ответа Fleet: верхний уровень, parks[] или parks как объект по park_id. */
 function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
   if (!data || typeof data !== "object") return [];
   const o = data as Record<string, unknown>;
@@ -279,6 +279,13 @@ function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
     }
     return out;
   }
+  if (o.parks != null && typeof o.parks === "object" && !Array.isArray(o.parks)) {
+    const out: DriverProfileItem[] = [];
+    for (const park of Object.values(o.parks as Record<string, { driver_profiles?: DriverProfileItem[] }>)) {
+      if (park && Array.isArray(park.driver_profiles)) out.push(...park.driver_profiles);
+    }
+    return out;
+  }
   return [];
 }
 
@@ -286,12 +293,13 @@ function parseDriverProfilesList(data: unknown): DriverProfileItem[] {
  * Список всех водителей парка из Fleet API (driver-profiles/list по park.id).
  * Документация: https://fleet.yandex.ru/docs/api/ru/
  * Поддерживаются форматы ответа: { driver_profiles: [] } и { parks: [{ driver_profiles: [] }] }.
+ * При пустом списке вызывается onEmptyResponseKeys(ключи верхнего уровня ответа) для диагностики.
  */
 export async function listParkDrivers(
   creds: FleetCredentials,
-  opts: { limit?: number; offset?: number } = {}
+  opts: { limit?: number; offset?: number; onEmptyResponseKeys?: (keys: string[]) => void } = {}
 ): Promise<YandexDriverProfile[]> {
-  const { limit = 500, offset = 0 } = opts;
+  const { limit = 500, offset = 0, onEmptyResponseKeys } = opts;
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
@@ -317,6 +325,9 @@ export async function listParkDrivers(
 
   const data = (await res.json()) as unknown;
   const rawList = parseDriverProfilesList(data);
+  if (rawList.length === 0 && data != null && typeof data === "object" && onEmptyResponseKeys) {
+    onEmptyResponseKeys(Object.keys(data as Record<string, unknown>));
+  }
 
   const out: YandexDriverProfile[] = [];
   for (const d of rawList) {

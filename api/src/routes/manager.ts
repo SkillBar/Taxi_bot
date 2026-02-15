@@ -265,7 +265,16 @@ export async function managerRoutes(app: FastifyInstance) {
 
     if (creds) {
       try {
-        const parkDrivers = await listParkDrivers(creds);
+        const parkDrivers = await listParkDrivers(creds, {
+          onEmptyResponseKeys: (keys) => {
+            req.log.warn({
+              step: "drivers_list",
+              source: "fleet",
+              fleetResponseTopLevelKeys: keys,
+              hint: "Fleet вернул 200, но список пуст — проверьте структуру ответа по ключам выше",
+            });
+          },
+        });
         req.log.info({
           step: "drivers_list",
           source: "fleet",
@@ -280,7 +289,14 @@ export async function managerRoutes(app: FastifyInstance) {
           balance: d.balance,
           workStatus: d.workStatus,
         }));
-        return reply.send({ drivers });
+        const hint =
+          parkDrivers.length === 0
+            ? "Fleet API вернул 0 водителей. Проверьте ID парка и права ключа в кабинете fleet.yandex.ru."
+            : undefined;
+        return reply.send({
+          drivers,
+          meta: { source: "fleet" as const, count: parkDrivers.length, hint },
+        });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         req.log.error({
@@ -289,7 +305,11 @@ export async function managerRoutes(app: FastifyInstance) {
           error: "listParkDrivers_failed",
           message: msg.slice(0, 300),
         });
-        return reply.status(502).send({ error: "Yandex Fleet API error", message: msg });
+        return reply.status(502).send({
+          error: "Yandex Fleet API error",
+          message: msg,
+          code: "FLEET_DRIVERS_ERROR",
+        });
       }
     }
 
@@ -310,6 +330,13 @@ export async function managerRoutes(app: FastifyInstance) {
       balance: undefined,
       workStatus: undefined,
     }));
-    return reply.send({ drivers });
+    const hint =
+      links.length === 0
+        ? "Парк не подключён (нет API-ключа). Подключите парк в онбординге или в Кабинете."
+        : undefined;
+    return reply.send({
+      drivers,
+      meta: { source: "driver_link" as const, count: links.length, hint },
+    });
   });
 }
