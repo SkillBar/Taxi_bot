@@ -170,33 +170,34 @@ export default function App() {
           // #region debug log
           debugLog({ location: "App.tsx:getAgentsMe:then", message: "getAgentsMe success", data: { linked: agentMe.linked, willRecheck, wasLinked }, hypothesisId: "H3" });
           // #endregion
-          if (!willRecheck) setLinked(agentMe.linked);
+          if (!willRecheck) {
+            if (agentMe.linked || !wasLinked) setLinked(agentMe.linked);
+          }
           if (willRecheck) {
             linkedCheckRetries -= 1;
             setTimeout(() => {
               getAgentsMe().then((recheck) => {
                 setMe(recheck);
-                setLinked(recheck.linked);
-                if (recheck.linked) setScreen("home");
-                else {
-                  // #region debug log
-                  debugLog({ location: "App.tsx:recheck", message: "recheck linked false -> onboarding", data: { recheckLinked: recheck.linked }, hypothesisId: "H3" });
-                  // #endregion
-                  setScreen((prev) => (prev === "init" || prev === "home" ? "onboarding" : prev));
+                if (recheck.linked) {
+                  setLinked(true);
+                  setScreen("home");
+                  getManagerMe().catch(() => {});
+                } else {
+                  if (wasLinked) {
+                    setScreen("home");
+                  } else {
+                    setLinked(false);
+                    setScreen((prev) => (prev === "init" || prev === "home" ? "onboarding" : prev));
+                  }
                 }
-                if (recheck.linked) getManagerMe().catch(() => {});
               }).catch(() => {});
             }, 600);
             return;
           }
           setScreen((prev) => {
             if (prev !== "init" && prev !== "home") return prev;
-            if (!agentMe.linked) {
-              // #region debug log
-              debugLog({ location: "App.tsx:setScreen:onboarding", message: "main path linked false -> onboarding", data: { agentMeLinked: agentMe.linked }, hypothesisId: "H3" });
-              // #endregion
-              return "onboarding";
-            }
+            if (!agentMe.linked && !wasLinked) return "onboarding";
+            if (!agentMe.linked && wasLinked) return "home";
             return "home";
           });
           if (agentMe.linked) {
