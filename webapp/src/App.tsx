@@ -430,6 +430,7 @@ export default function App() {
                       onRegisterDriver={() => startRegistration("driver")}
                       onRegisterCourier={() => startRegistration("courier")}
                       onOpenManager={() => setScreen("manager")}
+                      onCredsInvalid={() => setScreen("onboarding")}
                     />
                   </HomeErrorBoundary>
                 ))}

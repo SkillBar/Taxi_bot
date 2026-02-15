@@ -37,9 +37,11 @@ export interface AgentHomeScreenProps {
   onOpenManager?: () => void;
   /** Только список исполнителей и кнопки «Добавить водителя» / «Добавить курьера» внизу (для таба «Главная»). */
   mainTabOnly?: boolean;
+  /** Вызывается, когда бэкенд сбросил creds (401/403 от Fleet) — показать онбординг снова. */
+  onCredsInvalid?: () => void;
 }
 
-export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly }: AgentHomeScreenProps) {
+export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly, onCredsInvalid }: AgentHomeScreenProps) {
   const [user, setUser] = useState<AgentsMe | null>(null);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [driversLoading, setDriversLoading] = useState(true);
@@ -58,7 +60,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .catch(() => setUser(null));
   }, []);
 
-  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number } | null>(null);
+  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
   const FLEET_DEBOUNCE_MS = 700;
 
@@ -73,10 +75,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string; rawCount?: number } }>("/api/manager/drivers");
+      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } }>("/api/manager/drivers");
       const list = res?.data?.drivers;
       setDrivers(Array.isArray(list) ? list : []);
-      if (res?.data?.meta) setDriversMeta(res.data.meta);
+      if (res?.data?.meta) {
+        setDriversMeta(res.data.meta);
+        if (res.data.meta.credsInvalid) onCredsInvalid?.();
+      }
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { message?: string; code?: string } } };
       const status = err.response?.status;

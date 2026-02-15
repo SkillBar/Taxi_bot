@@ -36,10 +36,9 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [contactSent, setContactSent] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  /** ID парка — опционально; если пусто, бэкенд попытается определить по ключу. */
+  /** Показывать поле ID парка только после ошибки «parkId required» (редкий fallback). */
+  const [showParkIdFallback, setShowParkIdFallback] = useState(false);
   const [parkIdInput, setParkIdInput] = useState("");
-  /** Client ID — опционально; если пусто, бэкенд подставит taxi/park/{parkId}. */
-  const [clientIdInput, setClientIdInput] = useState("");
   const errorBlockRef = useRef<HTMLDivElement>(null);
 
   const handleRequestContact = useCallback(() => {
@@ -63,9 +62,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     });
   }, []);
 
-  const clientIdTrimmed = clientIdInput.trim();
-  const clientIdValid = !clientIdTrimmed || /^taxi\/park\/[0-9a-fA-F-]{20,}$/.test(clientIdTrimmed);
-
   const handleConnectFleet = useCallback(async () => {
     hapticImpact("light");
     const key = apiKey.trim();
@@ -74,17 +70,13 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
       setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
       return;
     }
-    if (!clientIdValid) {
-      setError("Client ID должен начинаться с taxi/park/ и заканчиваться ID парка (например taxi/park/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)");
-      setTimeout(() => errorBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
-      return;
-    }
     setError(null);
     setLoading(true);
     const mainBtn = window.Telegram?.WebApp?.MainButton;
     if (mainBtn?.showProgress) mainBtn.showProgress(true);
     try {
-      const res = await connectFleet(key, parkIdInput.trim(), clientIdInput.trim() || undefined);
+      const parkId = showParkIdFallback ? parkIdInput.trim() : "";
+      const res = await connectFleet(key, parkId, undefined);
       if (mainBtn?.showProgress) mainBtn.showProgress(false);
       mainBtn?.hide();
       // Запрос прошёл — сразу открываем личный кабинет
@@ -126,6 +118,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         }
 
         if (status === 400 && (data?.error === "parkId required" || data?.code === "parkId required")) {
+          setShowParkIdFallback(true);
           setError(
             (data?.message ?? "По ключу не удалось определить парк автоматически.") +
               "\n\nВведите ID парка в поле ниже (из кабинета fleet.yandex.ru → Настройки → Общая информация) и нажмите «Подключить» снова."
@@ -159,7 +152,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, parkIdInput, clientIdInput, clientIdValid, onLinked]);
+  }, [apiKey, parkIdInput, showParkIdFallback, onLinked]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("skipContact=1")) {
@@ -246,7 +239,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               Добро пожаловать в кабинет агента таксопарка!
             </h1>
             <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-              Пожалуйста, введите свой API-ключ
+              Введите API-ключ от вашего таксопарка (Яндекс Про → Настройки → API-доступ). ID парка подставится автоматически.
             </p>
           </div>
 
@@ -284,84 +277,47 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               />
             )}
           </div>
-          <div style={{ marginBottom: 16 }}>
-            {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
-              <>
-                <label style={{ display: "block", fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--tg-theme-text-color, #000)" }}>
-                  ID парка (опционально)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Оставьте пустым — парк определится по ключу"
+          <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666)", margin: "-8px 0 16px", padding: 0 }}>
+            Ключ берётся в Яндекс Про → Настройки → API-доступ. Остальное (парк и client ID) подставится автоматически.
+          </p>
+
+          {showParkIdFallback && (
+            <div style={{ marginBottom: 16 }}>
+              {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
+                <>
+                  <label style={{ display: "block", fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--tg-theme-text-color, #000)" }}>
+                    ID парка (вручную)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Из кабинета fleet.yandex.ru → Настройки → Общая информация"
+                    value={parkIdInput}
+                    onChange={(e) => setParkIdInput(e.target.value)}
+                    disabled={loading}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "10px 12px",
+                      fontSize: 16,
+                      border: "1px solid var(--tg-theme-hint-color, #ccc)",
+                      borderRadius: 8,
+                      background: "var(--tg-theme-bg-color, #fff)",
+                      color: "var(--tg-theme-text-color, #000)",
+                    }}
+                  />
+                </>
+              ) : (
+                <Input
+                  header="ID парка (вручную)"
+                  placeholder="Из кабинета fleet.yandex.ru → Настройки → Общая информация"
                   value={parkIdInput}
-                  onChange={(e) => setParkIdInput(e.target.value)}
+                  onChange={(e) => setParkIdInput((e.target as HTMLInputElement).value)}
                   disabled={loading}
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    padding: "10px 12px",
-                    fontSize: 16,
-                    border: "1px solid var(--tg-theme-hint-color, #ccc)",
-                    borderRadius: 8,
-                    background: "var(--tg-theme-bg-color, #fff)",
-                    color: "var(--tg-theme-text-color, #000)",
-                  }}
                 />
-              </>
-            ) : (
-              <Input
-                header="ID парка (опционально)"
-                placeholder="Оставьте пустым — парк определится по ключу"
-                value={parkIdInput}
-                onChange={(e) => setParkIdInput((e.target as HTMLInputElement).value)}
-                disabled={loading}
-              />
-            )}
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
-              <>
-                <label style={{ display: "block", fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--tg-theme-text-color, #000)" }}>
-                  Client ID (опционально)
-                </label>
-                <input
-                  type="text"
-                  placeholder="По умолчанию: taxi/park/{ID парка}"
-                  value={clientIdInput}
-                  onChange={(e) => setClientIdInput(e.target.value)}
-                  disabled={loading}
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    padding: "10px 12px",
-                    fontSize: 16,
-                    border: "1px solid var(--tg-theme-hint-color, #ccc)",
-                    borderRadius: 8,
-                    background: "var(--tg-theme-bg-color, #fff)",
-                    color: "var(--tg-theme-text-color, #000)",
-                  }}
-                />
-                {clientIdInput.trim() && !/^taxi\/park\/[0-9a-fA-F-]{20,}$/.test(clientIdInput.trim()) && (
-                  <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666)", margin: "6px 0 0", padding: 0 }}>
-                    Обычно выглядит как taxi/park/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-                  </p>
-                )}
-              </>
-            ) : (
-              <Input
-                header="Client ID (опционально)"
-                placeholder="По умолчанию: taxi/park/{ID парка}"
-                value={clientIdInput}
-                onChange={(e) => setClientIdInput((e.target as HTMLInputElement).value)}
-                disabled={loading}
-              />
-            )}
-          </div>
-          {clientIdInput.trim() && !clientIdValid && (
-            <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666)", margin: "-8px 0 12px", padding: 0 }}>
-              Обычно выглядит как taxi/park/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-            </p>
+              )}
+            </div>
           )}
+
           {error && (
             <div
               ref={errorBlockRef}

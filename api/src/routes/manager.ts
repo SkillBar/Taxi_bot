@@ -436,12 +436,29 @@ export async function managerRoutes(app: FastifyInstance) {
         return reply.send(responsePayload);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        const isAuthError = /Fleet API error (401|403)/.test(msg) || msg.includes("401") || msg.includes("403");
         req.log.error({
           step: "drivers_list",
           source: "fleet",
           error: "listParkDrivers_failed",
           message: msg.slice(0, 300),
+          credsCleared: isAuthError,
         });
+        if (managerId && isAuthError) {
+          await prisma.manager.update({
+            where: { id: managerId },
+            data: { yandexApiKey: null, yandexParkId: null, yandexClientId: null },
+          });
+          return reply.send({
+            drivers: [],
+            meta: {
+              source: "fleet",
+              count: 0,
+              credsInvalid: true,
+              hint: "Ключ или парк изменились. Подключите парк заново: введите API-ключ.",
+            },
+          });
+        }
         return reply.status(502).send({
           error: "Yandex Fleet API error",
           message: msg,
