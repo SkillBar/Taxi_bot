@@ -93,6 +93,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         const err = e as { response?: { status?: number; data?: { message?: string; notInBase?: boolean } } };
         if (err.response?.status === 403 && err.response?.data?.notInBase) {
           setError("Вашего номера нет в базе агентов. Обратитесь к администратору для регистрации.");
+          return;
         } else {
           setError(err.response?.data?.message ?? "Не удалось привязать номер. Попробуйте снова или перейдите к вводу ключа.");
         }
@@ -113,9 +114,9 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         const entered = await checkMeAndEnterCabinet();
         setLoading(false);
         if (entered) return;
-        setContactSent(true);
-        setStep("fleet");
         setError("Вашего номера нет в базе агентов. Обратитесь к администратору для регистрации.");
+        // Не переходим на шаг fleet (ввод ключа) — остаёмся на контакте, без формы API
+        setStep("contact");
       } else {
         setLoading(false);
         setError("Нужно поделиться контактом или ввести номер вручную.");
@@ -388,6 +389,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           </div>
 
           {needApiKeyForm && !schemaOutdatedMessage && (
+          <>
           <div style={{ marginBottom: 16 }}>
             {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
               <>
@@ -425,6 +427,8 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
           <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666)", margin: "-8px 0 16px", padding: 0 }}>
             Ключ берётся в Яндекс Про → Настройки → API-доступ. Остальное (парк и client ID) подставится автоматически.
           </p>
+          </>
+          )}
 
           {showParkIdFallback && (
             <div style={{ marginBottom: 16 }}>
@@ -461,8 +465,6 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
                 />
               )}
             </div>
-          )}
-
           )}
 
           {error && (

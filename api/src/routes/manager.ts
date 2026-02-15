@@ -9,7 +9,6 @@ import {
   listParkDrivers,
   normalizePhoneForYandex,
   validateFleetCredentials,
-  tryDiscoverParkId,
   fleetStatusToRussian,
   type FleetCredentials,
 } from "../lib/yandex-fleet.js";
@@ -168,7 +167,8 @@ export async function applyPhoneToManager(
     });
     app.log.info({ step: "applyPhoneToManager", action: "linked_telegram", managerId: manager.id });
   }
-  const hasFleet = Boolean(manager.fleetParkId ?? (manager.yandexApiKey && manager.yandexParkId && manager.yandexClientId));
+  const creds = await getManagerFleetCreds(manager.id);
+  const hasFleet = Boolean(creds?.apiKey && creds?.parkId && creds?.clientId);
   return { managerId: manager.id, hasFleet };
 }
 
@@ -313,48 +313,28 @@ export async function managerRoutes(app: FastifyInstance) {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
 
+    const existingCreds = await getManagerFleetCreds(managerId);
+    if (existingCreds) {
+      app.log.info({ step: "connect-fleet", message: "Парк уже подключён", managerId });
+      return reply.send({ success: true, message: "Парк уже подключён." });
+    }
+
     const apiKey = (req.body as { apiKey?: string })?.apiKey?.trim();
     let parkId = (req.body as { parkId?: string })?.parkId?.trim();
-    const clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
-    let discoveredParks: Array<{ id: string; name?: string }> | undefined;
+    let clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
     if (!parkId) {
-      app.log.info({ step: "connect-fleet", message: "Пытаюсь определить parkId по ключу" });
-      const discovered = await tryDiscoverParkId(apiKey);
-      if (discovered.parkId) {
-        parkId = discovered.parkId;
-        discoveredParks = discovered.parks;
-        app.log.info({
-          step: "connect-fleet",
-          discoveredParkId: parkId.slice(0, 8) + "***",
-          fromEndpoint: discovered.fromEndpoint,
-          parksCount: discovered.parksCount,
-        });
-        if (discovered.parksCount != null && discovered.parksCount > 1) {
-          app.log.warn({
-            step: "connect-fleet",
-            message: "Несколько парков по ключу, взят первый",
-            parksCount: discovered.parksCount,
-          });
-        }
+      const defaultPark = await ensureDefaultFleetPark(app);
+      if (defaultPark) {
+        parkId = defaultPark.parkId;
+        clientIdRaw = defaultPark.clientId;
+        app.log.info({ step: "connect-fleet", message: "parkId подставлен из env (парк по умолчанию)", parkIdPrefix: parkId.slice(0, 8) + "***" });
       } else {
-        const fleetCode = discovered.parkId === null ? (discovered as { fleetCode?: string }).fleetCode : undefined;
-        const fleetMessage = discovered.parkId === null ? (discovered as { fleetMessage?: string }).fleetMessage : undefined;
-        app.log.warn({
-          step: "connect-fleet",
-          message: "Не удалось определить parkId по ключу",
-          fleetErrorCode: fleetCode,
-          fleetErrorMessage: fleetMessage,
-        });
-        const baseMessage =
-          "По этому API-ключу не удалось определить парк автоматически (Fleet API не вернул список парков или доступ запрещён). Введите ID парка из кабинета fleet.yandex.ru (Настройки → Общая информация) в поле «ID парка» и нажмите «Подключить» снова.";
-        const hint = fleetMessage
-          ? ` Ответ Fleet: ${fleetMessage.slice(0, 150)}`
-          : "";
         return reply.status(400).send({
           error: "parkId required",
           code: "parkId required",
-          message: baseMessage + hint,
+          message:
+            "В настройках сервера не задан парк по умолчанию (YANDEX_PARK_ID и др.). Введите ID парка из кабинета fleet.yandex.ru (Настройки → Общая информация) в поле «ID парка» и нажмите «Подключить».",
         });
       }
     }
@@ -406,14 +386,7 @@ export async function managerRoutes(app: FastifyInstance) {
       parkId: parkId.slice(0, 8) + (parkId.length > 8 ? "***" : ""),
       clientIdPrefix: clientId.slice(0, 20) + (clientId.length > 20 ? "..." : ""),
     });
-    const successPayload: { success: true; message: string; parks?: Array<{ id: string; name?: string }> } = {
-      success: true,
-      message: "Парк успешно подключён!",
-    };
-    if (discoveredParks != null && discoveredParks.length > 1) {
-      successPayload.parks = discoveredParks;
-    }
-    return reply.send(successPayload);
+    return reply.send({ success: true, message: "Парк успешно подключён!" });
   });
 
   /**

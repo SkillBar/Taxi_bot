@@ -8,8 +8,6 @@ import { config } from "../config.js";
 const FLEET_API_BASE = "https://fleet-api.taxi.yandex.net";
 const DRIVER_PROFILES_LIST = `${FLEET_API_BASE}/v1/parks/driver-profiles/list`;
 const DRIVER_PROFILE_CREATE = `${FLEET_API_BASE}/v2/parks/contractors/driver-profile`;
-const PARKS_LIST = `${FLEET_API_BASE}/v1/parks/list`;
-const PARKS_INFO = `${FLEET_API_BASE}/v1/parks/info`;
 
 const FLEET_FETCH_RETRIES = 3;
 const FLEET_RETRY_DELAY_MS = 1500;
@@ -91,93 +89,6 @@ function headers(): Record<string, string> {
 
 export function isConfigured(): boolean {
   return Boolean(config.yandexParkId && config.yandexClientId && config.yandexApiKey);
-}
-
-export type DiscoverParkResult =
-  | { parkId: string; fromEndpoint: "parks/info" | "parks/list"; parksCount?: number; parks?: Array<{ id: string; name?: string }> }
-  | { parkId: null; fleetMessage?: string; fleetCode?: string };
-
-/**
- * Попытка получить ID парка по одному API-ключу.
- * Пробует /v1/parks/info (один парк), затем /v1/parks/list (массив парков).
- * При неудаче возвращает fleetMessage из ответа Fleet для подсказки пользователю.
- */
-export async function tryDiscoverParkId(apiKey: string): Promise<DiscoverParkResult> {
-  const headers = {
-    "Content-Type": "application/json",
-    "X-API-Key": apiKey,
-    "X-Client-ID": "taxi",
-  };
-
-  let lastFleetMessage: string | undefined;
-  let lastFleetCode: string | undefined;
-
-  function captureFleetError(bodyText: string): void {
-    try {
-      const json = JSON.parse(bodyText) as { message?: string; code?: string };
-      lastFleetCode = json?.code != null ? String(json.code) : undefined;
-      lastFleetMessage = json?.message ?? json?.code ?? bodyText.slice(0, 500);
-    } catch {
-      lastFleetMessage = bodyText.slice(0, 500);
-    }
-  }
-
-  // 1) /v1/parks/info — часто возвращает один парк по ключу
-  try {
-    const resInfo = await fetch(PARKS_INFO, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({}),
-    });
-    const bodyText = await resInfo.text();
-    if (!resInfo.ok) {
-      captureFleetError(bodyText);
-    } else {
-      const data = JSON.parse(bodyText) as { park?: { id?: string; name?: string }; parks?: Array<{ id?: string; name?: string }> };
-      const id = data?.park?.id != null ? data.park.id : data?.parks?.[0]?.id;
-      if (typeof id === "string" && id.length > 0) {
-        const parksCount = Array.isArray(data?.parks) ? data.parks.length : data?.park ? 1 : undefined;
-        const parks =
-          Array.isArray(data?.parks) && data.parks.length > 0
-            ? data.parks.map((p) => ({ id: String(p?.id ?? ""), name: p?.name })).filter((p) => p.id)
-            : undefined;
-        return { parkId: id, fromEndpoint: "parks/info", parksCount, parks: parks?.length ? parks : undefined };
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  // 2) /v1/parks/list — список парков
-  try {
-    const res = await fetch(PARKS_LIST, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({}),
-    });
-    const bodyText = await res.text();
-    if (!res.ok) {
-      captureFleetError(bodyText);
-    } else {
-      const data = JSON.parse(bodyText) as { parks?: Array<{ id?: string; name?: string }> };
-      const parks = data?.parks;
-      const id = Array.isArray(parks) && parks.length > 0 ? parks[0].id : undefined;
-      if (typeof id === "string" && id.length > 0) {
-        const list =
-          parks?.map((p) => ({ id: String(p?.id ?? ""), name: p?.name })).filter((p) => p.id.length > 0) ?? [];
-        return {
-          parkId: id,
-          fromEndpoint: "parks/list",
-          parksCount: parks?.length,
-          parks: list.length > 0 ? list : undefined,
-        };
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return { parkId: null, fleetMessage: lastFleetMessage, fleetCode: lastFleetCode };
 }
 
 /**
