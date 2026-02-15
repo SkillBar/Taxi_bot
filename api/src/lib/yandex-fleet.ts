@@ -93,17 +93,34 @@ export function isConfigured(): boolean {
   return Boolean(config.yandexParkId && config.yandexClientId && config.yandexApiKey);
 }
 
+export type DiscoverParkResult =
+  | { parkId: string; fromEndpoint: "parks/info" | "parks/list"; parksCount?: number; parks?: Array<{ id: string; name?: string }> }
+  | { parkId: null; fleetMessage?: string; fleetCode?: string };
+
 /**
  * Попытка получить ID парка по одному API-ключу.
  * Пробует /v1/parks/info (один парк), затем /v1/parks/list (массив парков).
- * Если оба недоступны или ключ без прав — возвращает null.
+ * При неудаче возвращает fleetMessage из ответа Fleet для подсказки пользователю.
  */
-export async function tryDiscoverParkId(apiKey: string): Promise<string | null> {
+export async function tryDiscoverParkId(apiKey: string): Promise<DiscoverParkResult> {
   const headers = {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
     "X-Client-ID": "taxi",
   };
+
+  let lastFleetMessage: string | undefined;
+  let lastFleetCode: string | undefined;
+
+  function captureFleetError(bodyText: string): void {
+    try {
+      const json = JSON.parse(bodyText) as { message?: string; code?: string };
+      lastFleetCode = json?.code != null ? String(json.code) : undefined;
+      lastFleetMessage = json?.message ?? json?.code ?? bodyText.slice(0, 500);
+    } catch {
+      lastFleetMessage = bodyText.slice(0, 500);
+    }
+  }
 
   // 1) /v1/parks/info — часто возвращает один парк по ключу
   try {
@@ -112,10 +129,20 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
       headers,
       body: JSON.stringify({}),
     });
-    if (resInfo.ok) {
-      const data = (await resInfo.json()) as { park?: { id?: string }; parks?: Array<{ id?: string }> };
-      const id = data?.park?.id != null ? data.park!.id : data?.parks?.[0]?.id;
-      if (typeof id === "string" && id.length > 0) return id;
+    const bodyText = await resInfo.text();
+    if (!resInfo.ok) {
+      captureFleetError(bodyText);
+    } else {
+      const data = JSON.parse(bodyText) as { park?: { id?: string; name?: string }; parks?: Array<{ id?: string; name?: string }> };
+      const id = data?.park?.id != null ? data.park.id : data?.parks?.[0]?.id;
+      if (typeof id === "string" && id.length > 0) {
+        const parksCount = Array.isArray(data?.parks) ? data.parks.length : data?.park ? 1 : undefined;
+        const parks =
+          Array.isArray(data?.parks) && data.parks.length > 0
+            ? data.parks.map((p) => ({ id: String(p?.id ?? ""), name: p?.name })).filter((p) => p.id)
+            : undefined;
+        return { parkId: id, fromEndpoint: "parks/info", parksCount, parks: parks?.length ? parks : undefined };
+      }
     }
   } catch {
     /* ignore */
@@ -128,14 +155,29 @@ export async function tryDiscoverParkId(apiKey: string): Promise<string | null> 
       headers,
       body: JSON.stringify({}),
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { parks?: Array<{ id?: string }> };
-    const id = data?.parks?.[0]?.id;
-    if (typeof id === "string" && id.length > 0) return id;
+    const bodyText = await res.text();
+    if (!res.ok) {
+      captureFleetError(bodyText);
+    } else {
+      const data = JSON.parse(bodyText) as { parks?: Array<{ id?: string; name?: string }> };
+      const parks = data?.parks;
+      const id = Array.isArray(parks) && parks.length > 0 ? parks[0].id : undefined;
+      if (typeof id === "string" && id.length > 0) {
+        const list =
+          parks?.map((p) => ({ id: String(p?.id ?? ""), name: p?.name })).filter((p) => p.id.length > 0) ?? [];
+        return {
+          parkId: id,
+          fromEndpoint: "parks/list",
+          parksCount: parks?.length,
+          parks: list.length > 0 ? list : undefined,
+        };
+      }
+    }
   } catch {
     /* ignore */
   }
-  return null;
+
+  return { parkId: null, fleetMessage: lastFleetMessage, fleetCode: lastFleetCode };
 }
 
 /**

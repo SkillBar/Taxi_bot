@@ -16,15 +16,15 @@ import {
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
 const fleetDriversCache = new Map<
   string,
-  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string }>; meta: { source: "fleet"; count: number; hint?: string }; expires: number }
+  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
 >();
-function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source: "fleet"; count: number; hint?: string } } | null {
+function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } } | null {
   const entry = fleetDriversCache.get(key);
   return entry && entry.expires > Date.now() ? { drivers: entry.drivers, meta: entry.meta } : null;
 }
 function setFleetDriversCache(
   key: string,
-  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string }>; meta: { source: "fleet"; count: number; hint?: string } },
+  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });
@@ -133,16 +133,43 @@ export async function managerRoutes(app: FastifyInstance) {
     const apiKey = (req.body as { apiKey?: string })?.apiKey?.trim();
     let parkId = (req.body as { parkId?: string })?.parkId?.trim();
     const clientIdRaw = (req.body as { clientId?: string })?.clientId?.trim();
+    let discoveredParks: Array<{ id: string; name?: string }> | undefined;
     if (!apiKey) return reply.status(400).send({ error: "apiKey required", message: "Введите API-ключ" });
     if (!parkId) {
       app.log.info({ step: "connect-fleet", message: "Пытаюсь определить parkId по ключу" });
       const discovered = await tryDiscoverParkId(apiKey);
-      parkId = discovered != null ? discovered : "";
-      if (!parkId) {
-        app.log.warn({ step: "connect-fleet", message: "Не удалось определить parkId по ключу" });
+      if (discovered.parkId) {
+        parkId = discovered.parkId;
+        discoveredParks = discovered.parks;
+        app.log.info({
+          step: "connect-fleet",
+          discoveredParkId: parkId.slice(0, 8) + "***",
+          fromEndpoint: discovered.fromEndpoint,
+          parksCount: discovered.parksCount,
+        });
+        if (discovered.parksCount != null && discovered.parksCount > 1) {
+          app.log.warn({
+            step: "connect-fleet",
+            message: "Несколько парков по ключу, взят первый",
+            parksCount: discovered.parksCount,
+          });
+        }
+      } else {
+        app.log.warn({
+          step: "connect-fleet",
+          message: "Не удалось определить parkId по ключу",
+          fleetErrorCode: discovered.fleetCode,
+          fleetErrorMessage: discovered.fleetMessage,
+        });
+        const baseMessage =
+          "По этому API-ключу не удалось определить парк автоматически (Fleet API не вернул список парков или доступ запрещён). Введите ID парка из кабинета fleet.yandex.ru (Настройки → Общая информация) в поле «ID парка» и нажмите «Подключить» снова.";
+        const hint = discovered.fleetMessage
+          ? ` Ответ Fleet: ${discovered.fleetMessage.slice(0, 150)}`
+          : "";
         return reply.status(400).send({
           error: "parkId required",
-          message: "Введите ID парка из кабинета Fleet (Настройки → Общая информация). Fleet API не возвращает список парков по ключу.",
+          code: "parkId required",
+          message: baseMessage + hint,
         });
       }
     }
@@ -194,7 +221,14 @@ export async function managerRoutes(app: FastifyInstance) {
       parkId: parkId.slice(0, 8) + (parkId.length > 8 ? "***" : ""),
       clientIdPrefix: clientId.slice(0, 20) + (clientId.length > 20 ? "..." : ""),
     });
-    return reply.send({ success: true, message: "Парк успешно подключён!" });
+    const successPayload: { success: true; message: string; parks?: Array<{ id: string; name?: string }> } = {
+      success: true,
+      message: "Парк успешно подключён!",
+    };
+    if (discoveredParks != null && discoveredParks.length > 1) {
+      successPayload.parks = discoveredParks;
+    }
+    return reply.send(successPayload);
   });
 
   /**
@@ -288,7 +322,12 @@ export async function managerRoutes(app: FastifyInstance) {
         const cached = getFleetDriversCache(cacheKey);
         if (cached && cached.expires > Date.now()) {
           req.log.info({ step: "drivers_list", source: "fleet", cacheHit: true, parkDriversCount: cached.drivers.length });
-          return reply.send({ drivers: cached.drivers, meta: cached.meta });
+          const meta = cached.meta;
+          if (meta.count === 0 && (meta.hint == null || String(meta.hint).trim() === "")) {
+            meta.hint =
+              "Fleet API вернул 0 водителей. Проверьте ID парка и права ключа в fleet.yandex.ru. Ожидаемые ключи ответа: driver_profiles, limit, offset (или data с ними внутри).";
+          }
+          return reply.send({ drivers: cached.drivers, meta });
         }
 
         let parseDiagnostics: { rawDriverProfilesLength: number; parsedDriversCount: number; firstItemSample?: string; driversWithoutName?: number } | null = null;
@@ -386,7 +425,12 @@ export async function managerRoutes(app: FastifyInstance) {
         if (hint && noNameSuffix) hint += noNameSuffix;
         const responsePayload = {
           drivers,
-          meta: { source: "fleet" as const, count: parkDrivers.length, hint: hint || undefined },
+          meta: {
+            source: "fleet" as const,
+            count: parkDrivers.length,
+            hint: hint || undefined,
+            ...(parseDiagnostics != null && { rawCount: parseDiagnostics.rawDriverProfilesLength }),
+          },
         };
         setFleetDriversCache(cacheKey, responsePayload, FLEET_DRIVERS_CACHE_TTL_MS);
         return reply.send(responsePayload);

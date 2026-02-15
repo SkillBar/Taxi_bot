@@ -58,7 +58,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .catch(() => setUser(null));
   }, []);
 
-  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string } | null>(null);
+  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
   const FLEET_DEBOUNCE_MS = 700;
 
@@ -73,7 +73,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string } }>("/api/manager/drivers");
+      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string; rawCount?: number } }>("/api/manager/drivers");
       const list = res?.data?.drivers;
       setDrivers(Array.isArray(list) ? list : []);
       if (res?.data?.meta) setDriversMeta(res.data.meta);
@@ -222,8 +222,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                       : hasFleet === false
                         ? "Парк не подключён. Подключите парк (API-ключ Fleet) в онбординге или в Кабинете — тогда здесь появится список водителей парка."
                         : driversMeta != null
-                          ? `Источник: ${driversMeta.source === "fleet" ? "Fleet API" : "привязки по телефону"}. Записей: ${driversMeta.count ?? 0}.${driversMeta.source === "fleet" ? " Проверьте ID парка и права API-ключа в fleet.yandex.ru." : " Подключите парк (API-ключ) в онбординге."}`
-                          : "Ответ API без диагностики. В логах бэкенда ищите: step=drivers_list, source, parkDriversCount или listParkDrivers_failed."}
+                          ? `Источник: ${driversMeta.source === "fleet" ? "Fleet API" : "привязки по телефону"}.${driversMeta.rawCount != null ? ` Fleet вернул ${driversMeta.rawCount} записей, отображено ${driversMeta.count ?? 0}.` : ` Записей: ${driversMeta.count ?? 0}.`}${driversMeta.source === "fleet" ? " Проверьте ID парка и права API-ключа в fleet.yandex.ru." : " Подключите парк (API-ключ) в онбординге."}`
+                          : "Список пуст. Подключите парк в онбординге (API-ключ и ID парка из fleet.yandex.ru) или проверьте, что бэкенд обновлён и возвращает meta.hint. В логах ищите: step=drivers_list, parkDriversCount, listParkDrivers_failed."}
                   </div>
                 </div>
               </>
