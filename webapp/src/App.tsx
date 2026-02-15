@@ -11,26 +11,27 @@ import { ManagerDashboard } from "./components/ManagerDashboard";
 import { hapticImpact } from "./lib/haptic";
 import { getLinked, getLinkedSync, setLinked } from "./lib/sessionStorage";
 
-/** Ждём появления initData (Telegram инжектирует его асинхронно). При повторном входе без ожидания запрос уходит без auth и бэкенд возвращает 401 / linked: false. */
-function waitForInitData(maxMs = 3000): Promise<void> {
+/** Ждём появления initData (Telegram инжектирует асинхронно при открытии/восстановлении). Возвращает true, если initData есть; false при таймауте. */
+function waitForInitData(maxMs = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     const wa = typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
-    if (!wa?.initData || wa.initData.length > 0) {
-      resolve();
+    const hasData = () => Boolean(wa?.initData && String(wa.initData).trim().length > 0);
+    if (hasData()) {
+      resolve(true);
       return;
     }
-    const step = 100;
+    const step = 150;
     let elapsed = 0;
     const t = setInterval(() => {
       elapsed += step;
-      if (wa.initData?.length) {
+      if (hasData()) {
         clearInterval(t);
-        resolve();
+        resolve(true);
         return;
       }
       if (elapsed >= maxMs) {
         clearInterval(t);
-        resolve();
+        resolve(false);
       }
     }, step);
   });
@@ -118,7 +119,7 @@ export default function App() {
     setIsLightTheme(scheme === "light");
   }, []);
 
-  // При загрузке: wasLinked из sessionStorage (localStorage + CloudStorage при закрытии приложения), затем initData → agents/me → manager/me. При 401 и wasLinked — повтор до 5 раз.
+  // При загрузке: wasLinked из sessionStorage, ждём initData (при перезаходе TG может подставить его с задержкой), затем agents/me. Без initData не дергаем API — при wasLinked остаёмся на home и повторяем.
   useEffect(() => {
     if (screen !== "init") return;
     setInitError(null);
@@ -126,14 +127,47 @@ export default function App() {
     if (syncLinked) setScreen("home");
 
     let retriesLeft = 5;
+    let linkedCheckRetries = 2; // при wasLinked и linked:false перепроверить, чтобы не сбросить из-за глитча
+    let initDataRetry = false;
+
     async function runInit() {
       const wasLinked = syncLinked || (await getLinked());
       if (wasLinked && !syncLinked) setScreen("home");
-      await waitForInitData(3000);
+
+      const hasInitData = await waitForInitData(initDataRetry ? 2000 : 5000);
+      initDataRetry = true;
+      if (!hasInitData) {
+        if (wasLinked) {
+          // Сессия есть, но initData ещё нет (перезаход/восстановление). Не сбрасываем — остаёмся на home и повторяем.
+          setTimeout(runInit, 1500);
+          return;
+        }
+        setInitError({
+          stage: STAGES.AGENTS_ME,
+          endpoint: ENDPOINTS.AGENTS_ME,
+          message: "Не получены данные авторизации. Откройте приложение заново из Telegram.",
+        });
+        setScreen("initError");
+        return;
+      }
+
       getAgentsMe()
         .then((agentMe) => {
           setMe(agentMe);
           setLinked(agentMe.linked);
+          if (!agentMe.linked && wasLinked && linkedCheckRetries > 0) {
+            linkedCheckRetries -= 1;
+            setTimeout(() => {
+              getAgentsMe().then((recheck) => {
+                setMe(recheck);
+                setLinked(recheck.linked);
+                if (recheck.linked) setScreen("home");
+                else setScreen((prev) => (prev === "init" || prev === "home" ? "onboarding" : prev));
+                if (recheck.linked) getManagerMe().catch(() => {});
+              }).catch(() => {});
+            }, 600);
+            return;
+          }
           setScreen((prev) => {
             if (prev !== "init" && prev !== "home") return prev;
             if (!agentMe.linked) return "onboarding";
