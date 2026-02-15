@@ -268,8 +268,9 @@ export async function managerRoutes(app: FastifyInstance) {
     if (managerId) {
       const manager = await prisma.manager.findUnique({ where: { id: managerId } });
       hasFleet = Boolean(manager?.fleetParkId ?? (manager?.yandexApiKey && manager?.yandexParkId && manager?.yandexClientId));
-      if (manager?.createdAt) {
-        const createdAgo = Date.now() - manager.createdAt.getTime();
+      const createdAt = (manager as { createdAt?: Date })?.createdAt;
+      if (createdAt) {
+        const createdAgo = Date.now() - createdAt.getTime();
         if (createdAgo < 5 * 60 * 1000) {
           welcomeMessage =
             "Ваш номер не был в базе. Вы подключены к парку по умолчанию. Обратитесь к администратору для привязки к другому парку.";
@@ -320,16 +321,18 @@ export async function managerRoutes(app: FastifyInstance) {
           });
         }
       } else {
+        const fleetCode = discovered.parkId === null ? (discovered as { fleetCode?: string }).fleetCode : undefined;
+        const fleetMessage = discovered.parkId === null ? (discovered as { fleetMessage?: string }).fleetMessage : undefined;
         app.log.warn({
           step: "connect-fleet",
           message: "Не удалось определить parkId по ключу",
-          fleetErrorCode: discovered.fleetCode,
-          fleetErrorMessage: discovered.fleetMessage,
+          fleetErrorCode: fleetCode,
+          fleetErrorMessage: fleetMessage,
         });
         const baseMessage =
           "По этому API-ключу не удалось определить парк автоматически (Fleet API не вернул список парков или доступ запрещён). Введите ID парка из кабинета fleet.yandex.ru (Настройки → Общая информация) в поле «ID парка» и нажмите «Подключить» снова.";
-        const hint = discovered.fleetMessage
-          ? ` Ответ Fleet: ${discovered.fleetMessage.slice(0, 150)}`
+        const hint = fleetMessage
+          ? ` Ответ Fleet: ${fleetMessage.slice(0, 150)}`
           : "";
         return reply.status(400).send({
           error: "parkId required",
@@ -522,7 +525,7 @@ export async function managerRoutes(app: FastifyInstance) {
         const FLEET_DRIVERS_CACHE_TTL_MS = 15_000;
         const cacheKey = `drivers:${managerId}:${creds.parkId}`;
         const cached = getFleetDriversCache(cacheKey);
-        if (cached && cached.expires > Date.now()) {
+        if (cached) {
           req.log.info({ step: "drivers_list", source: "fleet", cacheHit: true, parkDriversCount: cached.drivers.length });
           const meta = cached.meta;
           if (meta.count === 0 && (meta.hint == null || String(meta.hint).trim() === "")) {
@@ -532,7 +535,7 @@ export async function managerRoutes(app: FastifyInstance) {
           return reply.send({ drivers: cached.drivers, meta });
         }
 
-        let parseDiagnostics: { rawDriverProfilesLength: number; parsedDriversCount: number; firstItemSample?: string; driversWithoutName?: number } | null = null;
+        let parseDiagnostics: { rawDriverProfilesLength?: number; parsedDriversCount?: number; firstItemSample?: string; driversWithoutName?: number } | null = null;
         let fleetResponseTopLevelKeys: string[] = [];
         const parkDrivers = await listParkDrivers(creds, {
           onRequestParams: (p) => {
@@ -594,11 +597,13 @@ export async function managerRoutes(app: FastifyInstance) {
           balance: d.balance,
           workStatus: d.workStatus,
         }));
-        const rawCount = parseDiagnostics?.rawDriverProfilesLength ?? 0;
+        type Diag = { rawDriverProfilesLength?: number; driversWithoutName?: number };
+        const rawCount = (parseDiagnostics ? (parseDiagnostics as Diag).rawDriverProfilesLength : undefined) ?? 0;
         const parsedCount = parkDrivers.length;
         const hintSuffix = " Если проблема сохраняется — пришлите скрин кабинета и логи бэкенда разработчику.";
-        const noNameSuffix = parseDiagnostics?.driversWithoutName && parseDiagnostics.driversWithoutName > 0
-          ? ` Показаны водители без ФИО (${parseDiagnostics.driversWithoutName} шт.).`
+        const driversWithoutName = parseDiagnostics ? (parseDiagnostics as Diag).driversWithoutName : undefined;
+        const noNameSuffix = driversWithoutName != null && driversWithoutName > 0
+          ? ` Показаны водители без ФИО (${driversWithoutName} шт.).`
           : "";
         const keysForHint = fleetResponseTopLevelKeys.filter((k) => k !== "fleetResponseWrappedInData:true");
         let hint = "";
@@ -631,7 +636,7 @@ export async function managerRoutes(app: FastifyInstance) {
             source: "fleet" as const,
             count: parkDrivers.length,
             hint: hint || undefined,
-            ...(parseDiagnostics != null && { rawCount: parseDiagnostics.rawDriverProfilesLength }),
+            ...(parseDiagnostics != null && typeof (parseDiagnostics as Diag).rawDriverProfilesLength === "number" && { rawCount: (parseDiagnostics as Diag).rawDriverProfilesLength }),
           },
         };
         setFleetDriversCache(cacheKey, responsePayload, FLEET_DRIVERS_CACHE_TTL_MS);
