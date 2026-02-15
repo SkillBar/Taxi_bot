@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import {
   findDriverByPhone,
   getDriversStatus,
+  listParkDrivers,
   normalizePhoneForYandex,
   validateFleetCredentials,
   tryDiscoverParkId,
@@ -236,7 +237,8 @@ export async function managerRoutes(app: FastifyInstance) {
 
   /**
    * GET /api/manager/drivers
-   * Список водителей менеджера: из БД + актуальные статусы/балансы из Yandex Fleet (один батч-запрос).
+   * Список исполнителей парка из Yandex Fleet API (driver-profiles/list по park.id).
+   * Если Fleet подключён — возвращаем полный список водителей парка; иначе — только привязанных по телефону (DriverLink).
    */
   app.get("/drivers", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
@@ -245,40 +247,36 @@ export async function managerRoutes(app: FastifyInstance) {
     const manager = await prisma.manager.findUnique({ where: { id: managerId } });
     const creds = manager ? managerFleetCreds(manager) : null;
 
+    if (creds) {
+      try {
+        const parkDrivers = await listParkDrivers(creds);
+        const drivers = parkDrivers.map((d) => ({
+          id: d.yandexId,
+          yandexDriverId: d.yandexId,
+          phone: d.phone,
+          name: d.name,
+          balance: d.balance,
+          workStatus: d.workStatus,
+        }));
+        return reply.send({ drivers });
+      } catch (e) {
+        app.log.error(e);
+        return reply.status(502).send({ error: "Yandex Fleet API error", message: (e as Error).message });
+      }
+    }
+
     const links = await prisma.driverLink.findMany({
       where: { managerId },
       orderBy: { createdAt: "desc" },
     });
-
-    if (links.length === 0) {
-      return reply.send({ drivers: [] });
-    }
-
-    if (!creds) {
-      return reply.send({ drivers: links.map((l) => ({ id: l.id, yandexDriverId: l.yandexDriverId, phone: l.driverPhone, name: l.cachedName, balance: undefined, workStatus: undefined })) });
-    }
-
-    const ids = links.map((l) => l.yandexDriverId);
-    let statusMap;
-    try {
-      statusMap = await getDriversStatus(ids, creds);
-    } catch (e) {
-      app.log.error(e);
-      return reply.status(502).send({ error: "Yandex Fleet API error", message: (e as Error).message });
-    }
-
-    const drivers = links.map((link) => {
-      const live = statusMap.get(link.yandexDriverId);
-      return {
-        id: link.id,
-        yandexDriverId: link.yandexDriverId,
-        phone: link.driverPhone,
-        name: link.cachedName || live?.name || null,
-        balance: live?.balance,
-        workStatus: live?.workStatus,
-      };
-    });
-
+    const drivers = links.map((l) => ({
+      id: l.id,
+      yandexDriverId: l.yandexDriverId,
+      phone: l.driverPhone,
+      name: l.cachedName ?? null,
+      balance: undefined,
+      workStatus: undefined,
+    }));
     return reply.send({ drivers });
   });
 }

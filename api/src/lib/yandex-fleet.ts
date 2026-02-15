@@ -263,6 +263,60 @@ export async function findDriverByPhone(phone: string, creds?: FleetCredentials 
 }
 
 /**
+ * Список всех водителей парка из Fleet API (driver-profiles/list по park.id).
+ * Документация: https://fleet.yandex.ru/docs/api/ru/
+ */
+export async function listParkDrivers(
+  creds: FleetCredentials,
+  opts: { limit?: number; offset?: number } = {}
+): Promise<YandexDriverProfile[]> {
+  const { limit = 500, offset = 0 } = opts;
+  const body = {
+    query: { park: { id: creds.parkId } },
+    fields: {
+      driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
+      account: ["balance", "currency"],
+    },
+    limit,
+    offset,
+  };
+
+  const res = await fetch(DRIVER_PROFILES_LIST, {
+    method: "POST",
+    headers: headersFrom(creds),
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Yandex Fleet API error ${res.status}: ${err}`);
+  }
+
+  const data = (await res.json()) as {
+    driver_profiles?: Array<{
+      driver_profile?: { id?: string; work_status?: string; first_name?: string; last_name?: string; phones?: unknown };
+      accounts?: Array<{ balance?: string }>;
+    }>;
+  };
+
+  const out: YandexDriverProfile[] = [];
+  for (const d of data.driver_profiles || []) {
+    const profile = d.driver_profile;
+    const id = profile?.id;
+    if (!id) continue;
+    const firstName = profile?.first_name?.trim() || "";
+    const lastName = profile?.last_name?.trim() || "";
+    const name = [firstName, lastName].filter(Boolean).join(" ") || null;
+    const phone = parsePhoneFromPhones(profile?.phones) || "";
+    const balanceRaw = d.accounts?.[0]?.balance;
+    const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
+    const workStatus = profile?.work_status;
+    out.push({ yandexId: id, name, phone, balance, workStatus });
+  }
+  return out;
+}
+
+/**
  * Получение статусов/балансов по списку driver_profile_id (батч до 50–100 ID).
  * creds — учётные данные менеджера; если не переданы, используется глобальный config.
  */
