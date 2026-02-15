@@ -48,6 +48,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/", async (_req, reply) => {
     return reply.redirect("/health", 302);
   });
+  app.get("/favicon.ico", async (_req, reply) => reply.code(204).send());
+  app.get("/favicon.png", async (_req, reply) => reply.code(204).send());
 
   app.post("/api/debug-log", async (req, reply) => {
     try {

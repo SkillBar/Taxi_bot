@@ -351,9 +351,16 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
                 Подключаем ваш парк…
               </p>
             ) : (
-              <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
-                Введите API-ключ от вашего таксопарка (Яндекс Про → Настройки → API-доступ). ID парка подставится автоматически.
-              </p>
+              <>
+                <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
+                  Введите API-ключ от вашего таксопарка (Яндекс Про → Настройки → API-доступ). ID парка подставится автоматически.
+                </p>
+                {contactSent && (
+                  <p style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #888)", margin: "8px 0 0", fontStyle: "italic" }}>
+                    Если ваш номер в базе агентов — парк должен подставиться сам. Сейчас на сервере не задан парк по умолчанию; попросите администратора добавить YANDEX_PARK_ID, YANDEX_CLIENT_ID, YANDEX_API_KEY в настройки (Vercel → Environment Variables).
+                  </p>
+                )}
+              </>
             )}
           </div>
 
