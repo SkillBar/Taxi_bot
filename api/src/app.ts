@@ -51,15 +51,17 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.post("/api/debug-log", async (req, reply) => {
     try {
-      const payload = req.body as Record<string, unknown>;
-      const line = JSON.stringify({ ...payload, timestamp: payload.timestamp ?? Date.now() }) + "\n";
-      const dir = path.dirname(DEBUG_LOG_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.appendFileSync(DEBUG_LOG_PATH, line);
+      if (!process.env.VERCEL) {
+        const payload = req.body as Record<string, unknown>;
+        const line = JSON.stringify({ ...payload, timestamp: payload.timestamp ?? Date.now() }) + "\n";
+        const dir = path.dirname(DEBUG_LOG_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.appendFileSync(DEBUG_LOG_PATH, line);
+      }
       return reply.send({ ok: true });
     } catch (e) {
       req.log.warn({ debugLog: String(e) });
-      return reply.status(500).send({ ok: false });
+      return reply.send({ ok: true });
     }
   });
 
