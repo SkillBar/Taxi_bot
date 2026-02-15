@@ -83,9 +83,11 @@ export function buildErrorMessage(e: unknown): string {
       return null;
     })();
     const serverMsg =
-      parsed?.details != null && parsed.details !== ""
-        ? `${parsed?.error ?? "Ошибка"}: ${parsed.details}`
-        : parsed?.error ?? parsed?.message ?? msg;
+      parsed?.error === "Agent not found"
+        ? "Агент не найден. Откройте приложение заново из Telegram или пройдите привязку (онбординг)."
+        : parsed?.details != null && parsed.details !== ""
+          ? `${parsed?.error ?? "Ошибка"}: ${parsed.details}`
+          : parsed?.error ?? parsed?.message ?? msg;
     const prefix = status != null ? `Ответ сервера: ${status}. ` : "Ответ сервера: ";
     if (serverMsg !== msg || msg.includes("Invalid") || msg.includes("error") || /^\d{3}\s/.test(msg)) {
       return `${prefix}${serverMsg}`;

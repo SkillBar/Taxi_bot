@@ -15,6 +15,9 @@ function getConfig() {
     yandexParkId: process.env.YANDEX_PARK_ID,
     yandexClientId: process.env.YANDEX_CLIENT_ID,
     yandexApiKey: process.env.YANDEX_API_KEY,
+    /** Для создания профиля водителя в Fleet при submit драфта: work_rule_id и car_id (если заданы, и у менеджера есть Fleet — создаём водителя в Яндекс Fleet). */
+    fleetWorkRuleId: process.env.FLEET_WORK_RULE_ID,
+    fleetDefaultCarId: process.env.FLEET_DEFAULT_CAR_ID,
     // OAuth 2.0 (Yandex ID) для водителя: логин через Яндекс, токен для Fleet API от его имени
     yandexOAuthClientId: process.env.YANDEX_OAUTH_CLIENT_ID,
     yandexOAuthClientSecret: process.env.YANDEX_OAUTH_CLIENT_SECRET,

@@ -98,11 +98,29 @@ export type Draft = {
   brandingLightbox: boolean;
 };
 
+function parseDraftError(res: Response, body: string): Error & { status?: number; agentNotFound?: boolean } {
+  const err = new Error(
+    (() => {
+      try {
+        const o = JSON.parse(body) as { error?: string; message?: string };
+        if (o?.error === "Agent not found") return "Агент не найден. Откройте приложение заново из Telegram или пройдите привязку.";
+        return o?.message ?? o?.error ?? body;
+      } catch {
+        return body;
+      }
+    })()
+  ) as Error & { status?: number; agentNotFound?: boolean };
+  err.status = res.status;
+  err.agentNotFound = res.status === 404 && body.includes("Agent not found");
+  return err;
+}
+
 export async function getCurrentDraft(): Promise<Draft | null> {
   const res = await fetch(`${API_URL}/api/drafts/current`, { headers: headers() });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data as Draft | null;
+  const body = await res.text();
+  if (!res.ok) throw parseDraftError(res, body);
+  if (!body || body.trim() === "") return null;
+  return JSON.parse(body) as Draft | null;
 }
 
 export async function createDraft(type: "driver" | "courier"): Promise<Draft> {
@@ -111,8 +129,9 @@ export async function createDraft(type: "driver" | "courier"): Promise<Draft> {
     headers: headers(),
     body: JSON.stringify({ type }),
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const body = await res.text();
+  if (!res.ok) throw parseDraftError(res, body);
+  return JSON.parse(body) as Draft;
 }
 
 export async function updateDraft(draftId: string, patch: Record<string, unknown>): Promise<Draft> {

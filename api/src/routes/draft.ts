@@ -2,6 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
 import { config } from "../config.js";
 import { requireInitData, type RequestWithTelegram } from "../lib/auth.js";
+import {
+  createDriverProfile,
+  buildDriverProfileBodyFromDraft,
+  fleetStatusToRussian,
+  type FleetCredentials,
+} from "../lib/yandex-fleet.js";
 
 export async function draftRoutes(app: FastifyInstance) {
   // Get or create current in_progress draft for agent
@@ -126,8 +132,9 @@ export async function draftRoutes(app: FastifyInstance) {
     if (required.some((v) => !v))
       return reply.status(400).send({ error: "Не все обязательные поля заполнены" });
 
-    // Optional: call REGISTRATION_SUBMIT_URL here
     let submittedExecutorId: string | null = null;
+
+    // 1) Внешний URL (приоритет)
     if (config.registrationSubmitUrl) {
       try {
         const res = await fetch(config.registrationSubmitUrl, {
@@ -177,8 +184,46 @@ export async function draftRoutes(app: FastifyInstance) {
           error: "Ошибка регистрации: сервис недоступен. Повторите позже или обратитесь в поддержку.",
         });
       }
+    } else if (
+      draft.type === "driver" &&
+      config.fleetWorkRuleId &&
+      config.fleetDefaultCarId
+    ) {
+      // 2) Создание профиля водителя в Yandex Fleet (POST v2/parks/contractors/driver-profile)
+      const manager = await prisma.manager.findUnique({
+        where: { telegramId: telegramUserId },
+      });
+      const creds: FleetCredentials | null =
+        manager?.yandexApiKey && manager?.yandexParkId && manager?.yandexClientId
+          ? {
+              apiKey: manager.yandexApiKey,
+              parkId: manager.yandexParkId,
+              clientId: manager.yandexClientId,
+            }
+          : null;
+      if (creds) {
+        try {
+          const body = buildDriverProfileBodyFromDraft(draft, {
+            workRuleId: config.fleetWorkRuleId,
+            carId: config.fleetDefaultCarId,
+          });
+          const idempotencyToken = `${draft.id}-${Date.now()}`.slice(0, 64);
+          const result = await createDriverProfile(creds, body, idempotencyToken);
+          submittedExecutorId = result.contractor_profile_id;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const statusMatch = msg.match(/Fleet driver-profile create (\d+):/);
+          const status = statusMatch ? parseInt(statusMatch[1], 10) : 502;
+          const humanMsg = statusMatch ? fleetStatusToRussian(status) : msg.slice(0, 200);
+          return reply.status(502).send({
+            error: "Ошибка регистрации в Yandex Fleet. Повторите позже или обратитесь в поддержку.",
+            details: humanMsg,
+          });
+        }
+      } else {
+        submittedExecutorId = "mock-" + draft.id;
+      }
     } else {
-      // Mock success
       submittedExecutorId = "mock-" + draft.id;
     }
 

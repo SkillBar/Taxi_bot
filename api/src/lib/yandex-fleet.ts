@@ -7,6 +7,7 @@ import { config } from "../config.js";
 
 const FLEET_API_BASE = "https://fleet-api.taxi.yandex.net";
 const DRIVER_PROFILES_LIST = `${FLEET_API_BASE}/v1/parks/driver-profiles/list`;
+const DRIVER_PROFILE_CREATE = `${FLEET_API_BASE}/v2/parks/contractors/driver-profile`;
 const PARKS_LIST = `${FLEET_API_BASE}/v1/parks/list`;
 const PARKS_INFO = `${FLEET_API_BASE}/v1/parks/info`;
 
@@ -320,4 +321,137 @@ export async function getDriversStatus(
   }
 
   return result;
+}
+
+// --- Создание профиля водителя (POST v2/parks/contractors/driver-profile) ---
+// Документация: https://fleet.yandex.ru/docs/api/ru/openapi/ContractorProfiles/v2parkscontractorsdriver-profile-post
+
+/** Преобразует DD.MM.YYYY или YYYY-MM-DD в YYYY-MM-DD для Fleet API. */
+function toFleetDate(s: string | null | undefined): string | undefined {
+  if (!s || typeof s !== "string") return undefined;
+  const t = s.trim();
+  if (!t) return undefined;
+  const dmY = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dmY) return `${dmY[3]}-${dmY[2].padStart(2, "0")}-${dmY[1].padStart(2, "0")}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  return undefined;
+}
+
+/** Разбивает ФИО на first_name, last_name, middle_name (Fleet API). */
+function splitFio(fio: string | null | undefined): { first_name: string; last_name: string; middle_name?: string } {
+  const parts = (fio || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first_name: "Исполнитель", last_name: "" };
+  if (parts.length === 1) return { first_name: parts[0], last_name: "" };
+  return {
+    first_name: parts[0],
+    last_name: parts[parts.length - 1],
+    middle_name: parts.length > 2 ? parts.slice(1, -1).join(" ") : undefined,
+  };
+}
+
+export type FleetDriverProfileCreateBody = {
+  account?: {
+    balance_limit?: string;
+    work_rule_id: string;
+    payment_service_id?: string;
+    block_orders_on_balance_below_limit?: boolean;
+  };
+  person: {
+    full_name: { first_name: string; last_name: string; middle_name?: string };
+    contact_info: { phone: string; address?: string; email?: string };
+    driver_license: {
+      birth_date?: string;
+      country: string;
+      expiry_date: string;
+      issue_date: string;
+      number: string;
+    };
+    driver_license_experience?: { total_since_date?: string };
+    id_doc?: { address?: string };
+    tax_identification_number?: string;
+  };
+  profile?: { hire_date?: string; comment?: string };
+  car_id: string;
+  order_provider?: { platform?: boolean; partner?: boolean };
+};
+
+/** Собирает тело запроса для создания профиля водителя из черновика регистрации. */
+export function buildDriverProfileBodyFromDraft(
+  draft: {
+    executorFio: string | null;
+    executorPhone: string | null;
+    executorLicense: string | null;
+    executorLicenseCountry: string | null;
+    executorLicenseIssueDate: string | null;
+    executorLicenseValidUntil: string | null;
+    executorExperience?: string | null;
+  },
+  options: { workRuleId: string; carId: string; balanceLimit?: string }
+): FleetDriverProfileCreateBody {
+  const { workRuleId, carId, balanceLimit } = options;
+  const name = splitFio(draft.executorFio);
+  const phone = (draft.executorPhone || "").trim();
+  const normalizedPhone = phone.startsWith("+") ? phone : "+7" + phone.replace(/\D/g, "").replace(/^8/, "").slice(-10);
+  const issueDate = toFleetDate(draft.executorLicenseIssueDate);
+  const expiryDate = toFleetDate(draft.executorLicenseValidUntil);
+  const country = (draft.executorLicenseCountry || "rus").slice(0, 3).toLowerCase();
+  const licenseNumber = (draft.executorLicense || "").replace(/\s/g, "").slice(0, 20);
+
+  return {
+    account: {
+      work_rule_id: workRuleId,
+      ...(balanceLimit != null && { balance_limit: String(balanceLimit) }),
+      block_orders_on_balance_below_limit: false,
+    },
+    person: {
+      full_name: { first_name: name.first_name, last_name: name.last_name, ...(name.middle_name && { middle_name: name.middle_name }) },
+      contact_info: { phone: normalizedPhone || "+79000000000" },
+      driver_license: {
+        country: country || "rus",
+        number: licenseNumber || "000000",
+        issue_date: issueDate || "2020-01-01",
+        expiry_date: expiryDate || "2030-01-01",
+      },
+      ...(draft.executorExperience && {
+        driver_license_experience: {
+          total_since_date: toFleetDate(draft.executorExperience) || "2020-01-01",
+        },
+      }),
+    },
+    profile: { hire_date: new Date().toISOString().slice(0, 10), comment: "Из кабинета агента" },
+    car_id: carId,
+    order_provider: { platform: true, partner: true },
+  };
+}
+
+/**
+ * Создание профиля водителя в Yandex Fleet (POST v2/parks/contractors/driver-profile).
+ * Требует X-Idempotency-Token (16–64 печатных ASCII). Возвращает contractor_profile_id.
+ */
+export async function createDriverProfile(
+  creds: FleetCredentials,
+  body: FleetDriverProfileCreateBody,
+  idempotencyToken: string
+): Promise<{ contractor_profile_id: string }> {
+  const token = idempotencyToken.replace(/[^\x20-\x7E]/g, "").slice(0, 64);
+  if (token.length < 16) throw new Error("X-Idempotency-Token must be 16–64 printable ASCII characters");
+
+  const res = await fetchWithRetry(() =>
+    fetch(DRIVER_PROFILE_CREATE, {
+      method: "POST",
+      headers: {
+        ...headersFrom(creds),
+        "X-Idempotency-Token": token,
+      },
+      body: JSON.stringify(body),
+    })
+  );
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Fleet driver-profile create ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const data = JSON.parse(text) as { contractor_profile_id?: string };
+  if (!data?.contractor_profile_id) throw new Error("Fleet API did not return contractor_profile_id");
+  return { contractor_profile_id: data.contractor_profile_id };
 }

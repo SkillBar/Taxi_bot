@@ -9,17 +9,7 @@ import { SimpleHomeScreen } from "./components/SimpleHomeScreen";
 import { RegistrationFlow } from "./RegistrationFlow";
 import { ManagerDashboard } from "./components/ManagerDashboard";
 import { hapticImpact } from "./lib/haptic";
-
-const STORAGE_LINKED_KEY = "agent_linked";
-
-function setLinkedPersist(linked: boolean) {
-  try {
-    if (linked) localStorage.setItem(STORAGE_LINKED_KEY, "1");
-    else localStorage.removeItem(STORAGE_LINKED_KEY);
-  } catch {
-    // ignore
-  }
-}
+import { getLinked, getLinkedSync, setLinked } from "./lib/sessionStorage";
 
 /** Ждём появления initData (Telegram инжектирует его асинхронно). При повторном входе без ожидания запрос уходит без auth и бэкенд возвращает 401 / linked: false. */
 function waitForInitData(maxMs = 3000): Promise<void> {
@@ -128,20 +118,22 @@ export default function App() {
     setIsLightTheme(scheme === "light");
   }, []);
 
-  // При загрузке: ждём initData (TG отдаёт его асинхронно), затем agents/me → при linked проверка manager/me. При 401 и wasLinked — повтор до 2 раз (initData мог подтянуться позже).
+  // При загрузке: wasLinked из sessionStorage (localStorage + CloudStorage при закрытии приложения), затем initData → agents/me → manager/me. При 401 и wasLinked — повтор до 5 раз.
   useEffect(() => {
     if (screen !== "init") return;
     setInitError(null);
-    const wasLinked = typeof window !== "undefined" && localStorage.getItem(STORAGE_LINKED_KEY) === "1";
-    if (wasLinked) setScreen("home");
+    const syncLinked = getLinkedSync();
+    if (syncLinked) setScreen("home");
 
     let retriesLeft = 5;
-    function runInit() {
-      waitForInitData(3000)
-        .then(() => getAgentsMe())
+    async function runInit() {
+      const wasLinked = syncLinked || (await getLinked());
+      if (wasLinked && !syncLinked) setScreen("home");
+      await waitForInitData(3000);
+      getAgentsMe()
         .then((agentMe) => {
           setMe(agentMe);
-          setLinkedPersist(agentMe.linked);
+          setLinked(agentMe.linked);
           setScreen((prev) => {
             if (prev !== "init" && prev !== "home") return prev;
             if (!agentMe.linked) return "onboarding";
@@ -169,8 +161,7 @@ export default function App() {
             setTimeout(runInit, 800);
             return;
           }
-          // Не сбрасываем agent_linked при 401 (закрыли/переоткрыли приложение) — только при явном «Выйти» или 200 с linked: false
-          if (status !== 401) setLinkedPersist(false);
+          if (status !== 401) setLinked(false);
           setInitError({
             stage: STAGES.AGENTS_ME,
             endpoint: ENDPOINTS.AGENTS_ME,
@@ -206,6 +197,25 @@ export default function App() {
     }
   }, []);
 
+  const handleDraftError = (e: Error & { agentNotFound?: boolean }) => {
+    if (e.agentNotFound) {
+      setLinked(false);
+      setScreen("onboarding");
+      if (typeof window.Telegram?.WebApp?.showAlert === "function") {
+        window.Telegram.WebApp.showAlert("Сессия истекла. Пройдите привязку заново.");
+      } else {
+        alert("Сессия истекла. Пройдите привязку заново.");
+      }
+      return;
+    }
+    if (typeof window.Telegram?.WebApp?.showAlert === "function") {
+      window.Telegram.WebApp.showAlert(e.message ?? "Ошибка создания черновика");
+    } else {
+      alert(e.message ?? "Ошибка создания черновика");
+    }
+    setScreen("home");
+  };
+
   const startRegistration = (selectedType: "driver" | "courier") => {
     setType(selectedType);
     setScreen("loading");
@@ -221,10 +231,7 @@ export default function App() {
               setDraft(created);
               setScreen("flow");
             })
-            .catch((e) => {
-              alert(e.message ?? "Ошибка создания черновика");
-              setScreen("home");
-            });
+            .catch(handleDraftError);
         }
       })
       .catch(() => {
@@ -234,10 +241,7 @@ export default function App() {
             setDraft(created);
             setScreen("flow");
           })
-          .catch((e) => {
-            alert(e.message ?? "Ошибка создания черновика");
-            setScreen("home");
-          });
+          .catch(handleDraftError);
       });
   };
 
@@ -302,7 +306,7 @@ export default function App() {
         {screen === "onboarding" && !useSimpleUI && (
           <OnboardingScreen
             onLinked={() => {
-              setLinkedPersist(true);
+              setLinked(true);
               setScreen("home");
             }}
           />
@@ -340,7 +344,7 @@ export default function App() {
                   }
                 }}
                 onLogout={() => {
-                  setLinkedPersist(false);
+                  setLinked(false);
                   if (typeof window.Telegram?.WebApp?.close === "function") {
                     window.Telegram.WebApp.close();
                   } else {
