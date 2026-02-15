@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import {
   List,
@@ -59,8 +59,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   }, []);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string } | null>(null);
+  const lastFetchDriversRef = useRef<number>(0);
+  const FLEET_DEBOUNCE_MS = 700;
 
   const fetchDrivers = async () => {
+    const now = Date.now();
+    if (now - lastFetchDriversRef.current < FLEET_DEBOUNCE_MS) {
+      setDriversLoading(false);
+      return;
+    }
+    lastFetchDriversRef.current = now;
     setDriversLoadError(null);
     setDriversMeta(null);
     setDriversLoading(true);
@@ -209,12 +217,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 >
                   <div style={{ fontWeight: 600, marginBottom: 6 }}>В чём причина:</div>
                   <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {driversMeta?.hint ??
-                      (hasFleet === false
+                    {driversMeta != null && (driversMeta.hint ?? "").trim() !== ""
+                      ? driversMeta.hint
+                      : hasFleet === false
                         ? "Парк не подключён. Подключите парк (API-ключ Fleet) в онбординге или в Кабинете — тогда здесь появится список водителей парка."
-                        : driversMeta
+                        : driversMeta != null
                           ? `Источник: ${driversMeta.source === "fleet" ? "Fleet API" : "привязки по телефону"}. Записей: ${driversMeta.count ?? 0}.${driversMeta.source === "fleet" ? " Проверьте ID парка и права API-ключа в fleet.yandex.ru." : " Подключите парк (API-ключ) в онбординге."}`
-                          : "Ответ API без диагностики. В логах бэкенда ищите: step=drivers_list, source, parkDriversCount или listParkDrivers_failed.")}
+                          : "Ответ API без диагностики. В логах бэкенда ищите: step=drivers_list, source, parkDriversCount или listParkDrivers_failed."}
                   </div>
                 </div>
               </>
