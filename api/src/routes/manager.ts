@@ -292,6 +292,7 @@ export async function managerRoutes(app: FastifyInstance) {
         }
 
         let parseDiagnostics: { rawDriverProfilesLength: number; parsedDriversCount: number; firstItemSample?: string; driversWithoutName?: number } | null = null;
+        let fleetResponseTopLevelKeys: string[] = [];
         const parkDrivers = await listParkDrivers(creds, {
           onRequestParams: (p) => {
             req.log.info({
@@ -303,6 +304,11 @@ export async function managerRoutes(app: FastifyInstance) {
             });
           },
           onEmptyResponseKeys: (keys) => {
+            fleetResponseTopLevelKeys = keys;
+            const wrappedInData = keys.some((k) => k === "fleetResponseWrappedInData:true");
+            if (wrappedInData) {
+              req.log.info({ step: "drivers_list", source: "fleet", fleetResponseWrappedInData: true });
+            }
             req.log.warn({
               step: "drivers_list",
               source: "fleet",
@@ -315,8 +321,10 @@ export async function managerRoutes(app: FastifyInstance) {
             req.log.info({
               step: "drivers_list",
               source: "fleet",
+              fleetStatus: d.fleetStatus,
               rawDriverProfilesLength: d.rawDriverProfilesLength,
               parsedDriversCount: d.parsedDriversCount,
+              ...(d.skippedCount != null && d.skippedCount > 0 && { skippedCount: d.skippedCount, skippedNoId: d.skippedNoId }),
             });
             if (d.firstItemSample != null) {
               req.log.warn({
@@ -347,22 +355,39 @@ export async function managerRoutes(app: FastifyInstance) {
         }));
         const rawCount = parseDiagnostics?.rawDriverProfilesLength ?? 0;
         const parsedCount = parkDrivers.length;
-        const hintSuffix = " Если проблема сохраняется — пришлите скрин и логи бэкенда разработчику.";
+        const hintSuffix = " Если проблема сохраняется — пришлите скрин кабинета и логи бэкенда разработчику.";
         const noNameSuffix = parseDiagnostics?.driversWithoutName && parseDiagnostics.driversWithoutName > 0
           ? ` Показаны водители без ФИО (${parseDiagnostics.driversWithoutName} шт.).`
           : "";
-        let hint: string | undefined;
-        if (parsedCount === 0) {
-          if (parseDiagnostics && rawCount > 0 && parseDiagnostics.parsedDriversCount === 0) {
-            hint = `Fleet вернул ${rawCount} записей, но структура не поддерживается. Пришлите скрин + логи бэкенда (firstItemSample) разработчику.${hintSuffix}`;
+        const keysForHint = fleetResponseTopLevelKeys.filter((k) => k !== "fleetResponseWrappedInData:true");
+        let hint = "";
+        if (rawCount === 0) {
+          hint =
+            "Fleet API вернул 0 водителей для этого парка. Проверьте в fleet.yandex.ru:\n" +
+            "• Правильный ли ID парка\n" +
+            "• Есть ли водители в парке\n" +
+            "• Права у API-ключа на чтение списка водителей\n" +
+            hintSuffix;
+          if (keysForHint.length > 0) {
+            hint += `\nКлючи ответа Fleet: ${keysForHint.join(", ")}`;
           } else {
-            hint = `Fleet API вернул 0 водителей. Проверьте ID парка и права ключа в кабинете fleet.yandex.ru.${hintSuffix}`;
+            hint += "\nКлючи ответа Fleet: пустой объект";
           }
-        } else if (rawCount > 0 && parsedCount < rawCount * 0.5) {
-          hint = `Fleet вернул ${rawCount} записей, обработано только ${parsedCount} (неполный формат — проверьте поля в запросе).${hintSuffix}`;
+          hint += "\nОжидаемые ключи: driver_profiles, limit, offset (или data с ними внутри).";
+        } else if (rawCount > 0 && parsedCount === 0) {
+          hint =
+            `Fleet вернул ${rawCount} записей, но ни одна не распознана (неверный формат). ` +
+            `Проверьте структуру в логах (firstItemSample) и пришлите разработчику.${hintSuffix}`;
+        } else if (parsedCount > 0 && parsedCount < rawCount) {
+          hint = `Fleet вернул ${rawCount} записей, показано только ${parsedCount} (часть не распознана).${hintSuffix}`;
+        } else {
+          hint = "";
         }
         if (hint && noNameSuffix) hint += noNameSuffix;
-        const responsePayload = { drivers, meta: { source: "fleet" as const, count: parkDrivers.length, hint } };
+        const responsePayload = {
+          drivers,
+          meta: { source: "fleet" as const, count: parkDrivers.length, hint: hint || undefined },
+        };
         setFleetDriversCache(cacheKey, responsePayload, FLEET_DRIVERS_CACHE_TTL_MS);
         return reply.send(responsePayload);
       } catch (e) {

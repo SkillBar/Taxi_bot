@@ -323,6 +323,12 @@ export type ListParkDriversDiagnostics = {
   firstItemSample?: string;
   /** Сколько водителей показаны с заглушкой «Водитель #…» из‑за отсутствия ФИО. */
   driversWithoutName?: number;
+  /** HTTP-статус ответа Fleet (200, 401, 429 и т.д.). */
+  fleetStatus?: number;
+  /** Сколько записей отброшено при парсинге (raw - parsed). */
+  skippedCount?: number;
+  /** Сколько записей отброшено из‑за отсутствия id. */
+  skippedNoId?: number;
 };
 
 /**
@@ -366,13 +372,16 @@ export async function listParkDrivers(
   }
 
   const data = (await res.json()) as unknown;
+  const topLevelKeys = data != null && typeof data === "object" ? Object.keys(data as Record<string, unknown>) : [];
+  const hasDataWrapper = topLevelKeys.includes("data");
   const rawList = parseDriverProfilesList(data);
-  if (rawList.length === 0 && data != null && typeof data === "object" && onEmptyResponseKeys) {
-    onEmptyResponseKeys(Object.keys(data as Record<string, unknown>));
+  if (rawList.length === 0 && onEmptyResponseKeys) {
+    onEmptyResponseKeys(hasDataWrapper ? ["fleetResponseWrappedInData:true", ...topLevelKeys] : topLevelKeys);
   }
 
   const out: YandexDriverProfile[] = [];
   let driversWithoutName = 0;
+  let skippedNoId = 0;
   for (const d of rawList) {
     const raw = d as Record<string, unknown>;
     const profile = (d.driver_profile ?? raw) as Record<string, unknown> | undefined;
@@ -389,7 +398,10 @@ export async function listParkDrivers(
               : profile?.driver_profile_id != null
                 ? String(profile.driver_profile_id)
                 : undefined;
-    if (!id) continue;
+    if (!id) {
+      skippedNoId += 1;
+      continue;
+    }
     const firstName = (profile?.first_name != null ? String(profile.first_name) : raw.first_name != null ? String(raw.first_name) : "").trim();
     const lastName = (profile?.last_name != null ? String(profile.last_name) : raw.last_name != null ? String(raw.last_name) : "").trim();
     let name = [firstName, lastName].filter(Boolean).join(" ") || null;
@@ -407,10 +419,13 @@ export async function listParkDrivers(
   }
 
   if (onParseDiagnostics) {
+    const skippedCount = rawList.length - out.length;
     const diagnostics: ListParkDriversDiagnostics = {
       rawDriverProfilesLength: rawList.length,
       parsedDriversCount: out.length,
+      fleetStatus: res.status,
       ...(driversWithoutName > 0 && { driversWithoutName }),
+      ...(skippedCount > 0 && { skippedCount, ...(skippedNoId > 0 && { skippedNoId }) }),
     };
     if (rawList.length > 0 && out.length === 0) {
       diagnostics.firstItemSample = maskSensitiveInJsonSample(JSON.stringify(rawList[0], null, 2), 800);
