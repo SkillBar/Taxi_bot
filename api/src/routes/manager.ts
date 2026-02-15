@@ -67,29 +67,46 @@ async function requireManager(req: FastifyRequest, reply: FastifyReply): Promise
     derived: { name: nameFromTelegram, telegramUsername: usernameFromTelegram },
   });
 
-  let manager = await prisma.manager.findUnique({
-    where: { telegramId: String(user.id) },
-  });
-  if (!manager) {
-    manager = await prisma.manager.create({
-      data: {
-        telegramId: String(user.id),
-        name: nameFromTelegram,
-        telegramUsername: usernameFromTelegram,
-      },
+  try {
+    let manager = await prisma.manager.findUnique({
+      where: { telegramId: String(user.id) },
     });
-  } else {
-    const updates: { name?: string | null; telegramUsername?: string | null } = {};
-    if (nameFromTelegram != null) updates.name = nameFromTelegram;
-    if (usernameFromTelegram != null) updates.telegramUsername = usernameFromTelegram;
-    if (Object.keys(updates).length > 0) {
-      manager = await prisma.manager.update({
-        where: { id: manager.id },
-        data: updates,
+    if (!manager) {
+      manager = await prisma.manager.create({
+        data: {
+          telegramId: String(user.id),
+          name: nameFromTelegram,
+          telegramUsername: usernameFromTelegram,
+        },
+      });
+    } else {
+      const updates: { name?: string | null; telegramUsername?: string | null } = {};
+      if (nameFromTelegram != null) updates.name = nameFromTelegram;
+      if (usernameFromTelegram != null) updates.telegramUsername = usernameFromTelegram;
+      if (Object.keys(updates).length > 0) {
+        manager = await prisma.manager.update({
+          where: { id: manager.id },
+          data: updates,
+        });
+      }
+    }
+    (req as FastifyRequest & { managerId?: string }).managerId = manager.id;
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string; meta?: { column?: string } };
+    const isSchemaOutdated =
+      err.code === "P2022" && err.meta?.column === "Manager.fleetParkId" ||
+      (typeof err.message === "string" && err.message.includes("fleetParkId") && err.message.includes("does not exist"));
+    if (isSchemaOutdated) {
+      req.log.warn({ step: "requireManager", error: "schema_outdated", prismaCode: err.code, message: (err.message ?? "").slice(0, 120) });
+      return reply.status(503).send({
+        error: "schema_outdated",
+        code: "SCHEMA_OUTDATED",
+        message:
+          "База данных не обновлена. Администратору: выполните скрипт миграции в Neon (SQL Editor) для той БД, что в Vercel. См. docs/VERCEL_DB_MIGRATE.md",
       });
     }
+    throw e;
   }
-  (req as FastifyRequest & { managerId?: string }).managerId = manager.id;
 }
 
 function managerFleetCreds(manager: { yandexApiKey: string | null; yandexParkId: string | null; yandexClientId: string | null }): FleetCredentials | null {

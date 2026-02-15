@@ -42,6 +42,8 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
   const [parkIdInput, setParkIdInput] = useState("");
   /** Показывать форму API-ключа только если преднастроенный парк не задан (attach-default-fleet вернул 400). */
   const [needApiKeyForm, setNeedApiKeyForm] = useState(false);
+  /** Сообщение для администратора: схема БД не обновлена (503 SCHEMA_OUTDATED). Не показываем форму API. */
+  const [schemaOutdatedMessage, setSchemaOutdatedMessage] = useState<string | null>(null);
   const attachTriedRef = useRef(false);
   const errorBlockRef = useRef<HTMLDivElement>(null);
 
@@ -249,8 +251,14 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
               if (m.hasFleet) onLinked();
               else setStep("fleet");
             })
-            .catch((e) => {
-              setError(formatStageError(STAGES.MANAGER_ME, ENDPOINTS.MANAGER_ME, buildErrorMessage(e)));
+            .catch((e: unknown) => {
+              const err = e as { response?: { status?: number; data?: { code?: string; message?: string } } };
+              if (err.response?.status === 503 && err.response?.data?.code === "SCHEMA_OUTDATED") {
+                setSchemaOutdatedMessage(err.response?.data?.message ?? "База данных не обновлена. Обратитесь к администратору.");
+                setError(null);
+              } else {
+                setError(formatStageError(STAGES.MANAGER_ME, ENDPOINTS.MANAGER_ME, buildErrorMessage(e)));
+              }
               setStep("fleet");
             });
         } else {
@@ -290,8 +298,19 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
         setNeedApiKeyForm(true);
       })
       .catch((e: unknown) => {
-        const err = e as { response?: { status?: number } };
-        if (err.response?.status === 400) {
+        const err = e as {
+          response?: {
+            status?: number;
+            data?: { code?: string; message?: string };
+          };
+        };
+        const status = err.response?.status;
+        const data = err.response?.data;
+        if (status === 503 && data?.code === "SCHEMA_OUTDATED") {
+          setSchemaOutdatedMessage(data?.message ?? "База данных не обновлена. Обратитесь к администратору.");
+          return;
+        }
+        if (status === 400) {
           setNeedApiKeyForm(true);
         } else {
           setError(
@@ -346,7 +365,11 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             <h1 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--tg-theme-text-color, #000000)" }}>
               Добро пожаловать в кабинет агента таксопарка!
             </h1>
-            {!needApiKeyForm ? (
+            {schemaOutdatedMessage ? (
+              <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0, whiteSpace: "pre-wrap" }}>
+                {schemaOutdatedMessage}
+              </p>
+            ) : !needApiKeyForm ? (
               <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #666666)", margin: 0 }}>
                 Подключаем ваш парк…
               </p>
@@ -364,7 +387,7 @@ export function OnboardingScreen({ onLinked }: OnboardingScreenProps) {
             )}
           </div>
 
-          {needApiKeyForm && (
+          {needApiKeyForm && !schemaOutdatedMessage && (
           <div style={{ marginBottom: 16 }}>
             {typeof window !== "undefined" && !window.Telegram?.WebApp?.initData ? (
               <>
