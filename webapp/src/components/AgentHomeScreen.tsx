@@ -25,7 +25,7 @@ function getTelegramWebAppUser(): { id: number; first_name?: string; last_name?:
   return { id: user.id, first_name: user.first_name, last_name: user.last_name };
 }
 
-/** Водитель "на линии": work_status === "working" и (если есть) current_status в online/busy/driving */
+/** Водитель "на линии": work_status === "working" и current_status в online/busy/driving. Без current_status считаем не на линии. */
 const ON_LINE_CURRENT_STATUSES = ["online", "busy", "driving"] as const;
 
 export type DriverWithOptionalFields = Driver & {
@@ -38,8 +38,8 @@ function isOnLine(d: DriverWithOptionalFields): boolean {
   if (work === "fired") return false;
   if (work !== "working") return false;
   const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
-  if (current != null && current !== "") return ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
-  return true;
+  if (current == null || current === "") return false;
+  return ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
 }
 
 function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; color: string; icon: string } {
@@ -47,7 +47,11 @@ function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; colo
   if (work === "fired") return { label: "Уволен", color: "#ef4444", icon: "✕" };
   const isWorking = work === "working";
   const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
-  const isOffline = current === "offline" || (current != null && current !== "" && !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]));
+  const isOffline =
+    current == null ||
+    current === "" ||
+    current === "offline" ||
+    !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
   if (!isWorking || isOffline) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
   return { label: "На линии", color: "#22c55e", icon: "●" };
 }
