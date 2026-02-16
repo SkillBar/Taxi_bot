@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, updateDriver, type FleetListItem, type FullDriver } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, updateDriver, type FleetListOption, type FullDriver } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -137,11 +137,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     driver_experience: "", driver_license_series_number: "", driver_license_country: "", driver_license_issue_date: "", driver_license_expiration_date: "",
     car_brand: "", car_model: "", car_color: "", car_year: "", car_number: "", car_registration_certificate_number: "", car_id: undefined,
   });
-  const [fleetCountries, setFleetCountries] = useState<FleetListItem[]>([]);
-  const [fleetCarBrands, setFleetCarBrands] = useState<FleetListItem[]>([]);
-  const [fleetCarModels, setFleetCarModels] = useState<FleetListItem[]>([]);
-  const [fleetColors, setFleetColors] = useState<FleetListItem[]>([]);
+  const [fleetCountries, setFleetCountries] = useState<FleetListOption[]>([]);
+  const [fleetCarBrands, setFleetCarBrands] = useState<FleetListOption[]>([]);
+  const [fleetCarModels, setFleetCarModels] = useState<FleetListOption[]>([]);
+  const [fleetColors, setFleetColors] = useState<FleetListOption[]>([]);
   const [fleetListsLoading, setFleetListsLoading] = useState(false);
+  const [fleetModelsLoading, setFleetModelsLoading] = useState(false);
+  const [fleetListsError, setFleetListsError] = useState<string | null>(null);
   const [driverSaveLoading, setDriverSaveLoading] = useState(false);
   const [driverSaveError, setDriverSaveError] = useState<string | null>(null);
   const [driverFormErrors, setDriverFormErrors] = useState<Record<string, string>>({});
@@ -264,6 +266,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       })
       .catch(() => {})
       .finally(() => setDriverCardLoading(false));
+    setFleetListsError(null);
     setFleetListsLoading(true);
     Promise.all([
       getFleetList("countries"),
@@ -275,7 +278,18 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         setFleetCarBrands(Array.isArray(brands) ? brands : []);
         setFleetColors(Array.isArray(colors) ? colors : []);
       })
-      .catch(() => {})
+      .catch((err) => {
+        setFleetCountries([]);
+        setFleetCarBrands([]);
+        setFleetColors([]);
+        setFleetListsError("Не удалось загрузить справочники");
+        const msg = err?.response?.data?.message ?? err?.message ?? "Не удалось загрузить справочники";
+        if (typeof window !== "undefined" && window.Telegram?.WebApp?.showPopup) {
+          window.Telegram.WebApp.showPopup({ title: "Ошибка", message: msg });
+        } else {
+          alert(msg);
+        }
+      })
       .finally(() => setFleetListsLoading(false));
     setFleetCarModels([]);
   }, [selectedDriver?.id]);
@@ -283,11 +297,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   useEffect(() => {
     if (!selectedDriver || !driverForm.car_brand) {
       setFleetCarModels([]);
+      setFleetModelsLoading(false);
       return;
     }
+    setFleetModelsLoading(true);
     getFleetList("car-models", { brand: driverForm.car_brand })
       .then((models) => setFleetCarModels(Array.isArray(models) ? models : []))
-      .catch(() => setFleetCarModels([]));
+      .catch(() => setFleetCarModels([]))
+      .finally(() => setFleetModelsLoading(false));
   }, [selectedDriver?.id, driverForm.car_brand]);
 
   const validateDriverForm = useCallback((): Record<string, string> => {
@@ -496,6 +513,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             </div>
           </Section>
 
+          {fleetListsError && (
+            <Section>
+              <div style={{ padding: "12px 16px", fontSize: 13, color: "var(--tg-theme-destructive-text-color, #ef4444)" }}>
+                {fleetListsError}
+              </div>
+            </Section>
+          )}
           <Section header="Данные водителя">
             <Input header="Имя" placeholder="Имя" value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: (e.target as HTMLInputElement).value }))} />
             {driverFormErrors.first_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.first_name}</p>}
@@ -516,7 +540,9 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
                 >
                   <option value="">—</option>
-                  {fleetCountries.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+                  {fleetListsLoading && <option disabled>Загрузка...</option>}
+                  {!fleetListsLoading && fleetCountries.length === 0 && <option disabled>Нет данных</option>}
+                  {fleetCountries.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               }
             />
@@ -547,7 +573,9 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                       style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
                     >
                       <option value="">—</option>
-                      {fleetCarBrands.map((b) => <option key={b.id} value={b.id}>{b.name ?? b.id}</option>)}
+                      {fleetListsLoading && <option disabled>Загрузка...</option>}
+                      {!fleetListsLoading && fleetCarBrands.length === 0 && <option disabled>Нет данных</option>}
+                      {fleetCarBrands.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
                     </select>
                   }
                 />
@@ -561,7 +589,9 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                       style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
                     >
                       <option value="">—</option>
-                      {fleetCarModels.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
+                      {fleetModelsLoading && <option disabled>Загрузка...</option>}
+                      {!fleetModelsLoading && fleetCarModels.length === 0 && driverForm.car_brand && <option disabled>Нет данных</option>}
+                      {fleetCarModels.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   }
                 />
@@ -574,7 +604,9 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                       style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
                     >
                       <option value="">—</option>
-                      {fleetColors.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+                      {fleetListsLoading && <option disabled>Загрузка...</option>}
+                      {!fleetListsLoading && fleetColors.length === 0 && <option disabled>Нет данных</option>}
+                      {fleetColors.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   }
                 />

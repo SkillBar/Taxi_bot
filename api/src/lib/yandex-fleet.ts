@@ -717,6 +717,13 @@ export type FleetListType = "countries" | "car-brands" | "car-models" | "colors"
 
 export type FleetListItem = { id: string; name?: string; [key: string]: unknown };
 
+/** Нормализация элемента справочника Fleet (id/code, name/title). */
+function normalizeFleetListItem(raw: Record<string, unknown>): FleetListItem {
+  const id = (raw.code ?? raw.id ?? "") as string;
+  const name = (raw.name ?? raw.title ?? raw.code ?? id) as string;
+  return { id: String(id), name: String(name), ...raw };
+}
+
 /** Справочник из Fleet API: countries, car-brands, car-models (с brand), colors. */
 export async function getFleetList(
   creds: FleetCredentials,
@@ -740,12 +747,31 @@ export async function getFleetList(
     })
   );
   const text = await res.text();
-  if (!res.ok) throw new Error(`Fleet ${type} list ${res.status}: ${text.slice(0, 300)}`);
-  const data: Record<string, unknown> = (JSON.parse(text) as Record<string, unknown>) ?? {};
+  if (!res.ok) {
+    console.error("[getFleetList] Fleet error", { type, status: res.status, body: text.slice(0, 500) });
+    throw new Error(`Fleet ${type} list ${res.status}: ${text.slice(0, 300)}`);
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = (JSON.parse(text) as Record<string, unknown>) ?? {};
+  } catch (e) {
+    console.error("[getFleetList] JSON parse error", { type, text: text.slice(0, 200) });
+    return [];
+  }
+  console.log("[getFleetList] Fleet raw response keys", { type, keys: Object.keys(data) });
   const key = type === "countries" ? "countries" : type === "car-brands" ? "brands" : type === "car-models" ? "models" : "colors";
-  const raw = data[key] ?? (data.data as Record<string, unknown> | undefined)?.[key] ?? data;
-  const arr = raw as FleetListItem[] | undefined;
-  return Array.isArray(arr) ? arr : [];
+  const dataWrapper = data.data as Record<string, unknown> | undefined;
+  const raw = (data[key] ?? dataWrapper?.[key] ?? (Array.isArray(data.data) ? data.data : undefined)) as unknown;
+  const arr = Array.isArray(raw) ? raw : [];
+  const items = arr
+    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object")
+    .map(normalizeFleetListItem)
+    .filter((x) => x.id !== undefined && x.id !== "");
+  console.log("[getFleetList] parsed items", { type, count: items.length, sample: items.slice(0, 2) });
+  if (arr.length > 0 && items.length === 0) {
+    console.error("[getFleetList] Fleet returned array but no valid items", { type, rawSample: arr[0] });
+  }
+  return items;
 }
 
 export type DriverProfileUpdatePayload = {

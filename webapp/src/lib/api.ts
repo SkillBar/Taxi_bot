@@ -70,18 +70,26 @@ export async function getYandexOAuthAuthorizeUrl(): Promise<{ url: string }> {
 
 export type FleetListType = "countries" | "car-brands" | "car-models" | "colors";
 
-export type FleetListItem = { id: string; name?: string; [key: string]: unknown };
+export type FleetListItem = { id: string; name?: string; code?: string; title?: string; [key: string]: unknown };
+
+/** Элемент для dropdown: value (id/code), label (name/title). */
+export type FleetListOption = { value: string; label: string };
 
 /** Справочники Fleet для dropdown (countries, car-brands, car-models, colors). */
 export async function getFleetList(
   type: FleetListType,
   params?: { brand?: string }
-): Promise<FleetListItem[]> {
+): Promise<FleetListOption[]> {
   const url = type === "car-models" && params?.brand
     ? `/api/manager/fleet-lists/${type}?brand=${encodeURIComponent(params.brand)}`
     : `/api/manager/fleet-lists/${type}`;
-  const res = await api.get<{ items: FleetListItem[] }>(url);
-  return res.data?.items ?? [];
+  const res = await api.get<{ items?: FleetListItem[] }>(url);
+  const rawItems = res.data?.items ?? [];
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems.map((item: FleetListItem) => ({
+    value: (item.code ?? item.id ?? "").toString(),
+    label: (item.name ?? item.title ?? item.code ?? item.id ?? "").toString(),
+  })).filter((o) => o.value !== "" || o.label !== "");
 }
 
 /** Данные автомобиля из парка (для карточки водителя). */
