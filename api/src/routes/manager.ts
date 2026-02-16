@@ -14,6 +14,8 @@ import {
   getDriverProfileById,
   getDriverProfileV2,
   getVehicleById,
+  getDriverProfilesListRaw,
+  getVehicleByIdRaw,
   getContractorBlockedBalance,
   getDriverWorkRules,
   updateDriverProfile,
@@ -39,6 +41,23 @@ function setFleetDriversCache(
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });
+}
+
+/** Маскирует чувствительные поля в сыром ответе driver-profiles/list для fleet-debug. */
+function sanitizeFleetDriverListForDebug(body: Record<string, unknown>): Record<string, unknown> {
+  const out = JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
+  const list = out.driver_profiles as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(list)) return out;
+  for (const item of list) {
+    const profile = item.driver_profile as Record<string, unknown> | undefined;
+    if (profile?.phones) profile.phones = ["***"];
+    if (profile?.driver_license && typeof profile.driver_license === "object") {
+      (profile.driver_license as Record<string, unknown>).number = "***";
+    }
+    const accounts = item.accounts as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(accounts) && accounts[0]) accounts[0].balance = "***";
+  }
+  return out;
 }
 
 async function requireManager(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -798,6 +817,54 @@ export async function managerRoutes(app: FastifyInstance) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       req.log.warn({ step: "driver_get", driverId, error: msg.slice(0, 200) });
+      return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
+    }
+  });
+
+  /**
+   * GET /api/manager/driver/:driverId/fleet-debug
+   * Сырые ответы Fleet (driver-profiles/list и vehicles/car) для диагностики — в каком виде приходят car, brand, model, color.
+   * Чувствительные поля (phones, balance, driver_license.number) маскируются.
+   */
+  app.get<{ Params: { driverId: string } }>("/driver/:driverId/fleet-debug", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк." });
+    const driverId = req.params.driverId?.trim();
+    if (!driverId) return reply.status(400).send({ error: "driverId required" });
+    try {
+      const [listResult, profile] = await Promise.all([
+        getDriverProfilesListRaw(creds, driverId),
+        getDriverProfileById(creds, driverId),
+      ]);
+      const carId = profile?.car_id ?? (profile?.car?.id as string | undefined);
+      let vehicleResult: { ok: boolean; status: number; body: unknown } | null = null;
+      if (carId) {
+        vehicleResult = await getVehicleByIdRaw(creds, carId);
+      }
+      const listBody = listResult.body as Record<string, unknown>;
+      const sanitizedList = sanitizeFleetDriverListForDebug(listBody);
+      return reply.send({
+        driver_profiles_list: {
+          ok: listResult.ok,
+          status: listResult.status,
+          body: sanitizedList,
+          _hint: "Проверьте driver_profiles[].car и driver_profiles[].cars — откуда берутся brand, model, color",
+        },
+        vehicle_car: carId
+          ? {
+              vehicle_id: carId,
+              ok: vehicleResult!.ok,
+              status: vehicleResult!.status,
+              body: vehicleResult!.body,
+              _hint: "Проверьте vehicle_specifications / data.vehicle_specifications",
+            }
+          : { _hint: "У водителя нет car_id, запрос vehicles/car не выполнялся" },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "driver_fleet_debug", driverId, error: msg.slice(0, 200) });
       return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
     }
   });

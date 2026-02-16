@@ -158,6 +158,15 @@ export async function getDriver(driverId: string): Promise<{ driver: FullDriver 
   return res.data;
 }
 
+/** Сырые ответы Fleet для диагностики (driver-profiles/list и vehicles/car). */
+export async function getDriverFleetDebug(driverId: string): Promise<{
+  driver_profiles_list: { ok: boolean; status: number; body: unknown; _hint?: string };
+  vehicle_car: { vehicle_id?: string; ok?: boolean; status?: number; body: unknown; _hint?: string };
+}> {
+  const res = await api.get(`/api/manager/driver/${driverId}/fleet-debug`);
+  return res.data;
+}
+
 /** Баланс и заблокированный баланс водителя (Fleet ContractorProfiles blocked-balance). */
 export type DriverBalance = { balance: number; blocked_balance?: number };
 

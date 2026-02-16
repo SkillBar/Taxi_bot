@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, getDriverFleetDebug, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -160,6 +160,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [fullDriver, setFullDriver] = useState<FullDriver | null>(null);
   const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
   const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
+  const [fleetDebugData, setFleetDebugData] = useState<unknown>(null);
+  const [fleetDebugLoading, setFleetDebugLoading] = useState(false);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
@@ -726,6 +728,38 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
                 <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Номер свидетельства о регистрации транспортного средства</p>
               </>
+            )}
+          </Section>
+
+          <Section header="Диагностика Fleet">
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor }}>
+              Посмотреть, что именно возвращает Яндекс по водителю и машине (driver-profiles/list и vehicles/car).
+            </p>
+            <Button
+              size="m"
+              stretched
+              onClick={async () => {
+                if (!selectedDriver) return;
+                setFleetDebugLoading(true);
+                setFleetDebugData(null);
+                try {
+                  const data = await getDriverFleetDebug(selectedDriver.id);
+                  setFleetDebugData(data);
+                } catch {
+                  setFleetDebugData({ error: "Не удалось загрузить" });
+                } finally {
+                  setFleetDebugLoading(false);
+                }
+              }}
+              loading={fleetDebugLoading}
+              disabled={fleetDebugLoading || !selectedDriver}
+            >
+              Показать ответ Fleet
+            </Button>
+            {fleetDebugData != null && (
+              <pre style={{ margin: "12px 16px", padding: 12, background: "var(--tg-theme-secondary-bg-color)", borderRadius: 8, fontSize: 11, overflow: "auto", maxHeight: 360, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                {typeof fleetDebugData === "object" ? JSON.stringify(fleetDebugData, null, 2) : String(fleetDebugData)}
+              </pre>
             )}
           </Section>
 
