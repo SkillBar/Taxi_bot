@@ -101,6 +101,8 @@ export type FullDriverCar = {
   year?: number;
   number?: string;
   registration_certificate_number?: string;
+  /** Тип КПП: mechanical | automatic | robotic | variator (v2 vehicle_specifications). */
+  transmission?: string;
 };
 
 /** Полный профиль водителя из парка (driver + driver_license + car). Без даты рождения. */
@@ -119,6 +121,8 @@ export type FullDriver = {
   comment?: string | null;
   photo_url?: string | null;
   car?: FullDriverCar | null;
+  /** Идентификатор условия работы (v2 account.work_rule_id). */
+  work_rule_id?: string | null;
 };
 
 /** Полный профиль водителя из парка (для карточки). Ответ: { driver: FullDriver }. */

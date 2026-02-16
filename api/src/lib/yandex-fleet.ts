@@ -13,6 +13,10 @@ const FLEET_PARKS = `${FLEET_API_BASE}/v1/parks`;
 const FLEET_CARS_UPDATE = `${FLEET_API_BASE}/v1/parks/cars/update`;
 const FLEET_CONTRACTORS_BLOCKED_BALANCE = `${FLEET_API_BASE}/v1/parks/contractors/blocked-balance`;
 const FLEET_DRIVER_WORK_RULES = `${FLEET_API_BASE}/v1/parks/driver-work-rules`;
+/** GET профиль одного водителя (v2 ContractorProfiles): person.full_name, driver_license, profile, account.work_rule_id, car_id */
+const FLEET_DRIVER_PROFILE_V2 = `${FLEET_API_BASE}/v2/parks/contractors/driver-profile`;
+/** GET данные автомобиля (v2 Cars): vehicle_specifications (brand, model, color, year, transmission), vehicle_licenses (licence_plate_number, registration_certificate). */
+const FLEET_VEHICLES_CAR_V2 = `${FLEET_API_BASE}/v2/parks/vehicles/car`;
 
 const FLEET_FETCH_RETRIES = 3;
 const FLEET_RETRY_DELAY_MS = 1500;
@@ -81,6 +85,8 @@ export type DriverFullProfileCar = {
   year?: number;
   number?: string;
   registration_certificate_number?: string;
+  /** Тип КПП: mechanical | automatic | robotic | variator (v2 vehicle_specifications). */
+  transmission?: string;
 };
 
 /** Полный профиль одного водителя для карточки (без даты рождения). */
@@ -88,11 +94,14 @@ export type DriverFullProfile = YandexDriverProfile & {
   first_name?: string | null;
   last_name?: string | null;
   middle_name?: string | null;
+  /** ВУ из Fleet: country (CountryCode, напр. rus), series_number (из number), issue_date/expiration_date (YYYY-MM-DD из issue_date/expiry_date). */
   driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string } | null;
   driver_experience?: number | null;
   comment?: string | null;
   photo_url?: string | null;
   car?: DriverFullProfileCar | null;
+  /** Идентификатор условия работы (из v2 account.work_rule_id). */
+  work_rule_id?: string | null;
 };
 
 /** Учётные данные менеджера (из БД) или глобальный config */
@@ -452,6 +461,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_certificate", "brand_id", "model_id", "color_id"],
+      // ВУ: country (CountryCode, напр. rus), number (серия и номер), issue_date/expiry_date (ISO 8601)
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
       profile: ["comment"],
@@ -496,8 +506,10 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const license = (raw.driver_license ?? (d as { driver_license?: Record<string, unknown> }).driver_license) as Record<string, unknown> | undefined;
   const licenseNumber = license?.number != null ? String(license.number).replace(/\s/g, "") : undefined;
   const licenseCountry = license?.country != null ? String(license.country) : undefined;
-  const issueDate = license?.issue_date != null ? String(license.issue_date).slice(0, 10) : undefined;
-  const expiryDate = license?.expiry_date != null ? String(license.expiry_date).slice(0, 10) : undefined;
+  const issueDateRaw = license?.issue_date ?? license?.issue_date_iso;
+  const issueDate = issueDateRaw != null ? String(issueDateRaw).slice(0, 10) : undefined;
+  const expiryDateRaw = license?.expiry_date ?? license?.expiration_date;
+  const expiryDate = expiryDateRaw != null ? String(expiryDateRaw).slice(0, 10) : undefined;
   const expSince = (raw.driver_license_experience ?? (d as { driver_license_experience?: Array<{ total_since_date?: string }> }).driver_license_experience) as Array<{ total_since_date?: string }> | undefined;
   const totalSince = expSince?.[0]?.total_since_date;
   const driver_experience = totalSince ? Math.max(0, new Date().getFullYear() - new Date(totalSince).getFullYear()) : undefined;
@@ -546,6 +558,110 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
     comment: comment ?? null,
     photo_url: photo_url || null,
     car: car ?? null,
+  };
+}
+
+/**
+ * Получить профиль водителя по v2 API (GET /v2/parks/contractors/driver-profile).
+ * Структура ответа: person.full_name, person.contact_info.phone, person.driver_license (country, number, issue_date, expiry_date),
+ * person.driver_license_experience.total_since_date, profile.comment/work_status, account.work_rule_id, car_id.
+ * Не возвращает: balance (используйте blocked-balance), current_status (только в v1 list), photo_url, детали car (только car_id).
+ */
+export async function getDriverProfileV2(creds: FleetCredentials, contractorProfileId: string): Promise<DriverFullProfile | null> {
+  const url = `${FLEET_DRIVER_PROFILE_V2}?contractor_profile_id=${encodeURIComponent(contractorProfileId)}`;
+  const res = await fetchWithRetry(() =>
+    fetch(url, {
+      method: "GET",
+      headers: headersFrom(creds),
+    })
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    person?: {
+      full_name?: { first_name?: string; last_name?: string; middle_name?: string };
+      contact_info?: { phone?: string };
+      driver_license?: { country?: string; number?: string; issue_date?: string; expiry_date?: string };
+      driver_license_experience?: { total_since_date?: string };
+    };
+    profile?: { comment?: string; work_status?: string };
+    account?: { work_rule_id?: string };
+    car_id?: string;
+  };
+  const person = data.person;
+  const fullName = person?.full_name;
+  const firstName = (fullName?.first_name ?? "").trim();
+  const lastName = (fullName?.last_name ?? "").trim();
+  const middleName = (fullName?.middle_name ?? "").trim();
+  const name = [firstName, middleName, lastName].filter(Boolean).join(" ") || null;
+  const phone = (person?.contact_info?.phone ?? "").trim() || "";
+  const license = person?.driver_license;
+  const licenseNumber = license?.number != null ? String(license.number).replace(/\s/g, "") : undefined;
+  const licenseCountry = license?.country != null ? String(license.country) : undefined;
+  const issueDate = license?.issue_date != null ? String(license.issue_date).slice(0, 10) : undefined;
+  const expiryDate = license?.expiry_date != null ? String(license.expiry_date).slice(0, 10) : undefined;
+  const totalSince = person?.driver_license_experience?.total_since_date;
+  const driver_experience = totalSince ? Math.max(0, new Date().getFullYear() - new Date(totalSince).getFullYear()) : undefined;
+  const comment = data.profile?.comment != null ? String(data.profile.comment) : null;
+  const workStatus = data.profile?.work_status != null ? String(data.profile.work_status) : undefined;
+  const work_rule_id = data.account?.work_rule_id != null ? String(data.account.work_rule_id) : null;
+  const car_id = data.car_id != null ? String(data.car_id) : null;
+
+  return {
+    yandexId: contractorProfileId,
+    name: name || "Водитель #" + contractorProfileId.slice(-6),
+    phone,
+    workStatus,
+    current_status: "offline",
+    car_id,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    middle_name: middleName || null,
+    driver_license: licenseNumber || licenseCountry || issueDate || expiryDate ? { series_number: licenseNumber, country: licenseCountry, issue_date: issueDate, expiration_date: expiryDate } : null,
+    driver_experience: driver_experience ?? null,
+    comment: comment ?? null,
+    photo_url: null,
+    car: null,
+    work_rule_id: work_rule_id ?? null,
+  };
+}
+
+/**
+ * Получить данные автомобиля по v2 API (GET /v2/parks/vehicles/car).
+ * VehicleSpecifications: brand, model, color, year, transmission; VehicleLicenses: licence_plate_number, registration_certificate.
+ */
+export async function getVehicleById(creds: FleetCredentials, vehicleId: string): Promise<DriverFullProfileCar | null> {
+  const url = `${FLEET_VEHICLES_CAR_V2}?vehicle_id=${encodeURIComponent(vehicleId)}`;
+  const res = await fetchWithRetry(() =>
+    fetch(url, {
+      method: "GET",
+      headers: headersFrom(creds),
+    })
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    vehicle_specifications?: { brand?: string; model?: string; color?: string; year?: number; transmission?: string };
+    vehicle_licenses?: { licence_plate_number?: string; registration_certificate?: string };
+  };
+  const spec = data.vehicle_specifications;
+  const licenses = data.vehicle_licenses;
+  if (!spec && !licenses) return null;
+  const brand = spec?.brand != null ? String(spec.brand) : undefined;
+  const model = spec?.model != null ? String(spec.model) : undefined;
+  const color = spec?.color != null ? String(spec.color) : undefined;
+  const year = spec?.year != null ? Number(spec.year) : undefined;
+  const transmission = spec?.transmission != null ? String(spec.transmission) : undefined;
+  const number = licenses?.licence_plate_number != null ? String(licenses.licence_plate_number) : undefined;
+  const registration_certificate_number = licenses?.registration_certificate != null ? String(licenses.registration_certificate) : undefined;
+  if (!brand && !model && !color && !year && !number && !registration_certificate_number) return null;
+  return {
+    id: vehicleId,
+    brand,
+    model,
+    color,
+    year,
+    number,
+    registration_certificate_number,
+    transmission,
   };
 }
 

@@ -12,6 +12,8 @@ import {
   fleetStatusToRussian,
   getFleetList,
   getDriverProfileById,
+  getDriverProfileV2,
+  getVehicleById,
   getContractorBlockedBalance,
   getDriverWorkRules,
   updateDriverProfile,
@@ -727,7 +729,7 @@ export async function managerRoutes(app: FastifyInstance) {
 
   /**
    * GET /api/manager/driver/:driverId
-   * Полный профиль водителя из парка (для карточки). Без даты рождения.
+   * Полный профиль водителя из парка (для карточки). Использует v2 ContractorProfiles при наличии, иначе v1 list.
    */
   app.get<{ Params: { driverId: string } }>("/driver/:driverId", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
@@ -737,8 +739,48 @@ export async function managerRoutes(app: FastifyInstance) {
     const driverId = req.params.driverId?.trim();
     if (!driverId) return reply.status(400).send({ error: "driverId required" });
     try {
-      const profile = await getDriverProfileById(creds, driverId);
+      const [profileV2, profileV1] = await Promise.all([
+        getDriverProfileV2(creds, driverId),
+        getDriverProfileById(creds, driverId),
+      ]);
+      const profile = profileV1 ?? profileV2;
       if (!profile) return reply.status(404).send({ error: "Driver not found", message: "Водитель не найден в парке." });
+      if (profileV2 && profileV1) {
+        Object.assign(profile, {
+          work_rule_id: profileV2.work_rule_id ?? profileV1.work_rule_id,
+          first_name: profileV2.first_name ?? profileV1.first_name,
+          last_name: profileV2.last_name ?? profileV1.last_name,
+          middle_name: profileV2.middle_name ?? profileV1.middle_name,
+          name: profileV2.name ?? profileV1.name,
+          phone: profileV2.phone || profileV1.phone,
+          driver_license: profileV2.driver_license ?? profileV1.driver_license,
+          driver_experience: profileV2.driver_experience ?? profileV1.driver_experience,
+          comment: profileV2.comment ?? profileV1.comment,
+          workStatus: profileV2.workStatus ?? profileV1.workStatus,
+        });
+        if (profileV2.car_id != null) profile.car_id = profileV2.car_id;
+      }
+      const carId = profile.car_id ?? profile.car?.id;
+      if (carId) {
+        try {
+          const vehicle = await getVehicleById(creds, carId);
+          if (vehicle) {
+            profile.car = {
+              ...(profile.car ?? {}),
+              id: vehicle.id ?? profile.car?.id ?? carId,
+              brand: vehicle.brand ?? profile.car?.brand,
+              model: vehicle.model ?? profile.car?.model,
+              color: vehicle.color ?? profile.car?.color,
+              year: vehicle.year ?? profile.car?.year,
+              number: vehicle.number ?? profile.car?.number,
+              registration_certificate_number: vehicle.registration_certificate_number ?? profile.car?.registration_certificate_number,
+              transmission: vehicle.transmission,
+            };
+          }
+        } catch (e) {
+          req.log.warn({ step: "driver_get_car", driverId, carId, error: (e instanceof Error ? e.message : String(e)).slice(0, 100) });
+        }
+      }
       return reply.send({ driver: profile });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

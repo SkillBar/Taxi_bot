@@ -531,19 +531,21 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               )}
               <h2 style={{ margin: "12px 0 4px", fontSize: 20, fontWeight: 600 }}>{selectedDriver.name ?? "Без имени"}</h2>
               <p style={{ margin: 0, fontSize: 14, color: status.color, fontWeight: 500 }}>{status.icon} {status.label}</p>
-              {driverCardProfile?.balance != null && (
-                <p style={{ margin: "6px 0 0", fontSize: 16, fontWeight: 600, color: driverCardProfile.balance >= 0 ? "#22c55e" : destructiveColor }}>
-                  {driverCardProfile.balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.balance).toFixed(2)} ₽
-                </p>
-              )}
-              {driverCardProfile?.blocked_balance != null && driverCardProfile.blocked_balance !== 0 && (
-                <p style={{ margin: "2px 0 0", fontSize: 13, color: hintColor }}>
-                  Заблокировано: {driverCardProfile.blocked_balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.blocked_balance).toFixed(2)} ₽
-                </p>
-              )}
-              {driverCardLoading && (
-                <div style={{ marginTop: 8 }}>
-                  <Spinner size="s" />
+              {(driverCardProfile?.balance != null || driverCardLoading) && (
+                <div style={{ marginTop: 8, textAlign: "center" }}>
+                  <p style={{ margin: 0, fontSize: 12, color: hintColor }}>Баланс</p>
+                  {driverCardLoading ? (
+                    <Spinner size="s" style={{ marginTop: 4 }} />
+                  ) : (
+                    <p style={{ margin: "2px 0 0", fontSize: 16, fontWeight: 600, color: (driverCardProfile?.balance ?? 0) >= 0 ? "#22c55e" : destructiveColor }}>
+                      {(driverCardProfile?.balance ?? 0) >= 0 ? "" : "−"} {Math.abs(driverCardProfile?.balance ?? 0).toFixed(2)} ₽
+                    </p>
+                  )}
+                  {!driverCardLoading && driverCardProfile?.blocked_balance != null && driverCardProfile.blocked_balance !== 0 && (
+                    <p style={{ margin: "2px 0 0", fontSize: 13, color: hintColor }}>
+                      Заблокировано: {driverCardProfile.blocked_balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.blocked_balance).toFixed(2)} ₽
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -658,6 +660,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 />
                 <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
                 {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
+                {fullDriver?.car?.transmission && (
+                  <Cell subtitle="Коробка передач">
+                    {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
+                  </Cell>
+                )}
                 <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
                 <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
               </>
