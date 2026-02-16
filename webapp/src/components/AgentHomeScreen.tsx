@@ -341,23 +341,28 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .finally(() => setFleetModelsLoading(false));
   }, [selectedDriver?.id, driverForm.car_brand]);
 
-  // Нормализация марки/модели/цвета: если в форме пришло значение из API как label (название),
-  // подставляем value справочника, чтобы выпадающий список показал нужный пункт. Зависимость от fullDriver?.car
-  // чтобы сработать и когда данные водителя пришли после загрузки справочников.
+  // Нормализация марки/модели/цвета: значение из API (напр. "LADA (ВАЗ)") подставляем как value справочника.
+  // Сначала точное совпадение value/label, затем по вхождению (API "LADA (ВАЗ)" → option.label "LADA").
+  const matchOption = (formVal: string, options: { value: string; label: string }[]) => {
+    const exact = options.find((o) => o.value === formVal || o.label === formVal);
+    if (exact) return exact;
+    const formNorm = formVal.trim();
+    return options.find((o) => formNorm.includes(o.label.trim()) || o.label.trim().includes(formNorm));
+  };
   useEffect(() => {
     if (!selectedDriver) return;
     setDriverForm((prev) => {
       let next = { ...prev };
       if (fleetCarBrands.length > 0 && prev.car_brand) {
-        const brandOption = fleetCarBrands.find((b) => b.value === prev.car_brand || b.label === prev.car_brand);
+        const brandOption = matchOption(prev.car_brand, fleetCarBrands);
         if (brandOption && brandOption.value !== prev.car_brand) next = { ...next, car_brand: brandOption.value };
       }
       if (fleetCarModels.length > 0 && prev.car_model) {
-        const modelOption = fleetCarModels.find((m) => m.value === prev.car_model || m.label === prev.car_model);
+        const modelOption = matchOption(prev.car_model, fleetCarModels);
         if (modelOption && modelOption.value !== prev.car_model) next = { ...next, car_model: modelOption.value };
       }
       if (fleetColors.length > 0 && prev.car_color) {
-        const colorOption = fleetColors.find((c) => c.value === prev.car_color || c.label === prev.car_color);
+        const colorOption = matchOption(prev.car_color, fleetColors);
         if (colorOption && colorOption.value !== prev.car_color) next = { ...next, car_color: colorOption.value };
       }
       return next;
