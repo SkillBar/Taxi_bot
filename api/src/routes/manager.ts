@@ -11,6 +11,7 @@ import {
   validateFleetCredentials,
   fleetStatusToRussian,
   getFleetList,
+  getDriverProfileById,
   updateDriverProfile,
   updateCar,
   type FleetCredentials,
@@ -716,6 +717,28 @@ export async function managerRoutes(app: FastifyInstance) {
       const msg = e instanceof Error ? e.message : String(e);
       req.log.warn({ step: "fleet_lists", type, error: msg.slice(0, 200) });
       return reply.status(502).send({ error: "Fleet list error", message: msg.slice(0, 300) });
+    }
+  });
+
+  /**
+   * GET /api/manager/driver/:driverId
+   * Полный профиль водителя из парка (для карточки). Без даты рождения.
+   */
+  app.get<{ Params: { driverId: string } }>("/driver/:driverId", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк." });
+    const driverId = req.params.driverId?.trim();
+    if (!driverId) return reply.status(400).send({ error: "driverId required" });
+    try {
+      const profile = await getDriverProfileById(creds, driverId);
+      if (!profile) return reply.status(404).send({ error: "Driver not found", message: "Водитель не найден в парке." });
+      return reply.send({ driver: profile });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "driver_get", driverId, error: msg.slice(0, 200) });
+      return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
     }
   });
 

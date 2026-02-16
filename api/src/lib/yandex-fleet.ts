@@ -66,6 +66,29 @@ export type YandexDriverProfile = {
   car_id?: string | null;
 };
 
+/** Данные автомобиля из Fleet (для карточки водителя). */
+export type DriverFullProfileCar = {
+  id?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+  year?: number;
+  number?: string;
+  registration_certificate_number?: string;
+};
+
+/** Полный профиль одного водителя для карточки (без даты рождения). */
+export type DriverFullProfile = YandexDriverProfile & {
+  first_name?: string | null;
+  last_name?: string | null;
+  middle_name?: string | null;
+  driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string } | null;
+  driver_experience?: number | null;
+  comment?: string | null;
+  photo_url?: string | null;
+  car?: DriverFullProfileCar | null;
+};
+
 /** Учётные данные менеджера (из БД) или глобальный config */
 export type FleetCredentials = {
   apiKey: string;
@@ -401,6 +424,97 @@ export async function listParkDrivers(
   }
 
   return out;
+}
+
+/**
+ * Получить полный профиль одного водителя по ID (для карточки). Без даты рождения.
+ * Запрашивает расширенные поля у Fleet; если не найден — null.
+ */
+export async function getDriverProfileById(creds: FleetCredentials, driverId: string): Promise<DriverFullProfile | null> {
+  const body = {
+    query: { park: { id: creds.parkId }, driver_profile: { id: [driverId] } },
+    fields: {
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
+      account: ["balance", "currency"],
+      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate"],
+      driver_license: ["country", "number", "issue_date", "expiry_date"],
+      driver_license_experience: ["total_since_date"],
+      profile: ["comment"],
+    },
+    limit: 1,
+    offset: 0,
+  };
+  const res = await fetchWithRetry(() =>
+    fetch(DRIVER_PROFILES_LIST, {
+      method: "POST",
+      headers: headersFrom(creds),
+      body: JSON.stringify(body),
+    })
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  const rawList = parseDriverProfilesList(data);
+  const d = rawList[0];
+  if (!d) return null;
+  const raw = d as Record<string, unknown>;
+  const profile = (d.driver_profile ?? raw) as Record<string, unknown> | undefined;
+  const id = profile?.id != null ? String(profile.id) : raw.id != null ? String(raw.id) : undefined;
+  if (!id) return null;
+  const firstName = (profile?.first_name != null ? String(profile.first_name) : "").trim();
+  const lastName = (profile?.last_name != null ? String(profile.last_name) : "").trim();
+  const middleName = (profile?.middle_name != null ? String(profile.middle_name) : "").trim();
+  const name = [firstName, lastName].filter(Boolean).join(" ") || null;
+  const phones = profile?.phones ?? raw.phones;
+  const phone = parsePhoneFromPhones(phones) || "";
+  const accountsList = Array.isArray(d.accounts) ? d.accounts : Array.isArray((raw as { account?: unknown }).account) ? (raw as { account: Array<{ balance?: unknown }> }).account : [];
+  const balanceRaw = accountsList[0]?.balance ?? (raw as { balance?: unknown }).balance;
+  const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
+  const workStatus = (profile?.work_status != null ? String(profile.work_status) : raw.work_status != null ? String(raw.work_status) : undefined) as string | undefined;
+  const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
+  const car_id = car?.id != null ? String(car.id) : null;
+  const license = (raw.driver_license ?? (d as { driver_license?: Record<string, unknown> }).driver_license) as Record<string, unknown> | undefined;
+  const licenseNumber = license?.number != null ? String(license.number).replace(/\s/g, "") : undefined;
+  const licenseCountry = license?.country != null ? String(license.country) : undefined;
+  const issueDate = license?.issue_date != null ? String(license.issue_date).slice(0, 10) : undefined;
+  const expiryDate = license?.expiry_date != null ? String(license.expiry_date).slice(0, 10) : undefined;
+  const expSince = (raw.driver_license_experience ?? (d as { driver_license_experience?: Array<{ total_since_date?: string }> }).driver_license_experience) as Array<{ total_since_date?: string }> | undefined;
+  const totalSince = expSince?.[0]?.total_since_date;
+  const driver_experience = totalSince ? Math.max(0, new Date().getFullYear() - new Date(totalSince).getFullYear()) : undefined;
+  const profileObj = (raw.profile ?? (d as { profile?: { comment?: string } }).profile) as { comment?: string } | undefined;
+  const comment = profileObj?.comment != null ? String(profileObj.comment) : null;
+  const photo_url = (profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url) != null ? String((profile as { photo?: string }).photo ?? (raw as { photo?: string }).photo ?? (profile as { photo_url?: string }).photo_url) : null;
+
+  const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car) as Record<string, unknown> | undefined;
+  let car: DriverFullProfileCar | null = null;
+  if (carRaw && (carRaw.id != null || carRaw.brand != null || carRaw.model != null)) {
+    const regCert = carRaw.registration_certificate ?? carRaw.registration_certificate_number;
+    car = {
+      id: carRaw.id != null ? String(carRaw.id) : undefined,
+      brand: carRaw.brand != null ? String(carRaw.brand) : undefined,
+      model: carRaw.model != null ? String(carRaw.model) : undefined,
+      color: carRaw.color != null ? String(carRaw.color) : undefined,
+      year: carRaw.year != null ? Number(carRaw.year) : undefined,
+      number: carRaw.number != null ? String(carRaw.number) : undefined,
+      registration_certificate_number: regCert != null ? String(regCert) : undefined,
+    };
+  }
+
+  return {
+    yandexId: id,
+    name: name || "Водитель #" + id.slice(-6),
+    phone,
+    balance,
+    workStatus,
+    car_id,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    middle_name: middleName || null,
+    driver_license: licenseNumber || licenseCountry || issueDate || expiryDate ? { series_number: licenseNumber, country: licenseCountry, issue_date: issueDate, expiration_date: expiryDate } : null,
+    driver_experience: driver_experience ?? null,
+    comment: comment ?? null,
+    photo_url: photo_url || null,
+    car: car ?? null,
+  };
 }
 
 /**

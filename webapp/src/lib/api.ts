@@ -84,6 +84,41 @@ export async function getFleetList(
   return res.data?.items ?? [];
 }
 
+/** Данные автомобиля из парка (для карточки водителя). */
+export type FullDriverCar = {
+  id?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+  year?: number;
+  number?: string;
+  registration_certificate_number?: string;
+};
+
+/** Полный профиль водителя из парка (driver + driver_license + car). Без даты рождения. */
+export type FullDriver = {
+  yandexId: string;
+  name: string | null;
+  phone: string;
+  balance?: number;
+  workStatus?: string;
+  car_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  middle_name?: string | null;
+  driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string } | null;
+  driver_experience?: number | null;
+  comment?: string | null;
+  photo_url?: string | null;
+  car?: FullDriverCar | null;
+};
+
+/** Полный профиль водителя из парка (для карточки). Ответ: { driver: FullDriver }. */
+export async function getDriver(driverId: string): Promise<{ driver: FullDriver }> {
+  const res = await api.get<{ driver: FullDriver }>(`/api/manager/driver/${driverId}`);
+  return res.data;
+}
+
 /** Обновить профиль водителя и/или авто в Fleet. */
 export async function updateDriver(
   driverId: string,

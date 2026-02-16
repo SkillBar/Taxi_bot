@@ -11,11 +11,19 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, updateDriver, type FleetListItem } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, updateDriver, type FleetListItem, type FullDriver } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
 import type { Driver } from "./ManagerDashboard";
+
+/** Telegram WebApp: user из initDataUnsafe (доступен при запуске из Telegram). */
+function getTelegramWebAppUser(): { id: number; first_name?: string; last_name?: string } | null {
+  const u = typeof window !== "undefined" ? window.Telegram?.WebApp?.initDataUnsafe?.user : undefined;
+  if (!u || typeof (u as { id?: unknown }).id !== "number") return null;
+  const user = u as { id: number; first_name?: string; last_name?: string };
+  return { id: user.id, first_name: user.first_name, last_name: user.last_name };
+}
 
 /** Водитель "на линии": work_status === "working" и (если есть) current_status в online/busy/driving */
 const ON_LINE_CURRENT_STATUSES = ["online", "busy", "driving"] as const;
@@ -49,6 +57,17 @@ function displayName(me: AgentsMe | null): string {
   const first = me.firstName?.trim() || "";
   const last = me.lastName?.trim() || "";
   return [first, last].filter(Boolean).join(" ") || "Пользователь";
+}
+
+/** Имя пользователя: сначала из Telegram.WebApp.initDataUnsafe.user, иначе из API (AgentsMe). */
+function displayNameFromTelegramOrApi(telegramUser: { first_name?: string; last_name?: string } | null, apiUser: AgentsMe | null): string {
+  if (telegramUser) {
+    const first = (telegramUser.first_name ?? "").trim();
+    const last = (telegramUser.last_name ?? "").trim();
+    const name = [first, last].filter(Boolean).join(" ");
+    if (name) return name;
+  }
+  return displayName(apiUser);
 }
 
 /** Парсинг ФИО: "Иванов Иван Иванович" → first_name, last_name, middle_name. */
@@ -126,6 +145,9 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverSaveLoading, setDriverSaveLoading] = useState(false);
   const [driverSaveError, setDriverSaveError] = useState<string | null>(null);
   const [driverFormErrors, setDriverFormErrors] = useState<Record<string, string>>({});
+  const [driverCardLoading, setDriverCardLoading] = useState(false);
+  const [fullDriver, setFullDriver] = useState<FullDriver | null>(null);
+  const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
@@ -186,8 +208,21 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .catch(() => setHasFleet(false));
   }, []);
 
+  /** Поддержка тёмной/светлой темы: прокидываем themeParams в WebApp (header/background). */
   useEffect(() => {
-    if (!selectedDriver) return;
+    const wa = typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
+    if (!wa) return;
+    const bg = wa.themeParams?.bg_color;
+    if (bg && wa.setHeaderColor) wa.setHeaderColor(bg);
+    if (bg && wa.setBackgroundColor) wa.setBackgroundColor(bg);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDriver) {
+      setFullDriver(null);
+      setDriverCardProfile(null);
+      return;
+    }
     const parsed = parseDriverName(selectedDriver.name);
     setDriverForm((prev) => ({
       ...prev,
@@ -197,8 +232,38 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       phone: selectedDriver.phone ?? "",
       car_id: (selectedDriver as { car_id?: string | null }).car_id ?? undefined,
     }));
+    setFullDriver(null);
+    setDriverCardProfile(null);
     setDriverSaveError(null);
     setDriverFormErrors({});
+    setDriverCardLoading(true);
+    getDriver(selectedDriver.id)
+      .then((res) => {
+        const full = res.driver;
+        setFullDriver(full);
+        setDriverForm((prev) => ({
+          ...prev,
+          first_name: full.first_name ?? prev.first_name,
+          last_name: full.last_name ?? prev.last_name,
+          middle_name: full.middle_name ?? prev.middle_name,
+          phone: full.phone ?? prev.phone,
+          driver_license_series_number: full.driver_license?.series_number ?? prev.driver_license_series_number,
+          driver_license_country: full.driver_license?.country ?? prev.driver_license_country,
+          driver_license_issue_date: full.driver_license?.issue_date?.slice(0, 10) ?? prev.driver_license_issue_date,
+          driver_license_expiration_date: full.driver_license?.expiration_date?.slice(0, 10) ?? prev.driver_license_expiration_date,
+          driver_experience: full.driver_experience != null ? String(full.driver_experience) : prev.driver_experience,
+          car_id: full.car_id ?? full.car?.id ?? prev.car_id,
+          car_brand: full.car?.brand ?? prev.car_brand,
+          car_model: full.car?.model ?? prev.car_model,
+          car_color: full.car?.color ?? prev.car_color,
+          car_year: full.car?.year != null ? String(full.car.year) : prev.car_year,
+          car_number: full.car?.number ?? prev.car_number,
+          car_registration_certificate_number: full.car?.registration_certificate_number ?? prev.car_registration_certificate_number,
+        }));
+        setDriverCardProfile({ balance: full.balance, photo_url: full.photo_url, comment: full.comment });
+      })
+      .catch(() => {})
+      .finally(() => setDriverCardLoading(false));
     setFleetListsLoading(true);
     Promise.all([
       getFleetList("countries"),
@@ -312,6 +377,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     return list;
   }, [onLineDrivers, searchQuery]);
 
+  /** Telegram WebApp BackButton: show() при открытой карточке, onClick → закрыть модалку (навигация назад). */
   useEffect(() => {
     if (!selectedDriver) {
       try {
@@ -372,12 +438,18 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     }
   };
 
+  /** Telegram WebApp: user_id и имя из initDataUnsafe (поддержка тёмной/светлой темы через themeParams). */
+  const telegramWebAppUser = useMemo(() => getTelegramWebAppUser(), []);
+  const telegramUserId = telegramWebAppUser?.id ?? null;
+
+  /** Цвета из Telegram.WebApp.themeParams (автоматически тёмная/светлая тема). */
   const themeParams = typeof window !== "undefined" ? window.Telegram?.WebApp?.themeParams : undefined;
   const bgColor = themeParams?.bg_color ?? "var(--tg-theme-bg-color, #ffffff)";
   const textColor = themeParams?.text_color ?? "var(--tg-theme-text-color, #000000)";
   const hintColor = themeParams?.hint_color ?? "var(--tg-theme-hint-color, #999999)";
   const secondaryBgColor = themeParams?.secondary_bg_color ?? "var(--tg-theme-secondary-bg-color, #f5f5f5)";
 
+  /** Pull-to-refresh для списка водителей (custom: без MainButton, жесты на main). */
   const handleTouchStart = (e: React.TouchEvent) => {
     if (window.scrollY <= 5) touchStartY.current = e.touches[0].clientY;
   };
@@ -393,137 +465,149 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setPullRefreshY(null);
   };
 
+  const name = displayNameFromTelegramOrApi(telegramWebAppUser, user);
+
+  /** Отдельный экран карточки водителя (Telegram UI Kit: List, Section, Input, Button, Cell, Avatar). */
   if (selectedDriver) {
     const status = driverDisplayStatus(selectedDriver);
-    const inputStyle = {
-      width: "100%" as const,
-      boxSizing: "border-box" as const,
-      padding: "10px 12px",
-      fontSize: 15,
-      border: `1px solid ${hintColor}`,
-      borderRadius: 8,
-      background: bgColor,
-      color: textColor,
-    };
-    const labelStyle = { display: "block" as const, fontSize: 12, color: hintColor, marginBottom: 4 };
+    const destructiveColor = "var(--tg-theme-destructive-text-color, #ef4444)";
     return (
       <AppRoot>
-        <main style={{ minHeight: "100vh", background: secondaryBgColor, color: textColor, paddingBottom: 24 }}>
-          <div style={{ margin: 16, padding: 20, background: bgColor, borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", maxHeight: "85vh", overflowY: "auto" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-              <Avatar size={56} acronym={selectedDriver.name?.[0] ?? selectedDriver.phone?.[0] ?? "?"} />
-              <div style={{ flex: 1 }}>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: textColor }}>{selectedDriver.name ?? "Без имени"}</h2>
-                <p style={{ margin: "4px 0 0", fontSize: 13, color: status.color }}>{status.icon} {status.label}</p>
-              </div>
+        <List>
+          <Section>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px" }}>
+              {driverCardProfile?.photo_url ? (
+                <img src={driverCardProfile.photo_url} alt="" style={{ width: 96, height: 96, borderRadius: "50%", objectFit: "cover" }} />
+              ) : (
+                <Avatar size={96} acronym={selectedDriver.name?.[0] ?? selectedDriver.phone?.[0] ?? "?"} />
+              )}
+              <h2 style={{ margin: "12px 0 4px", fontSize: 20, fontWeight: 600 }}>{selectedDriver.name ?? "Без имени"}</h2>
+              <p style={{ margin: 0, fontSize: 14, color: status.color, fontWeight: 500 }}>{status.icon} {status.label}</p>
+              {driverCardProfile?.balance != null && (
+                <p style={{ margin: "6px 0 0", fontSize: 16, fontWeight: 600, color: driverCardProfile.balance >= 0 ? "#22c55e" : destructiveColor }}>
+                  {driverCardProfile.balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.balance).toFixed(2)} ₽
+                </p>
+              )}
+              {driverCardLoading && (
+                <div style={{ marginTop: 8 }}>
+                  <Spinner size="s" />
+                </div>
+              )}
             </div>
+          </Section>
 
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: textColor }}>Данные водителя</div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Имя</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.first_name ? "#ef4444" : hintColor }} value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: e.target.value }))} placeholder="Имя" />
-                {driverFormErrors.first_name && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.first_name}</p>}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Фамилия</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.last_name ? "#ef4444" : hintColor }} value={driverForm.last_name} onChange={(e) => setDriverForm((f) => ({ ...f, last_name: e.target.value }))} placeholder="Фамилия" />
-                {driverFormErrors.last_name && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.last_name}</p>}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Отчество</label>
-                <input style={inputStyle} value={driverForm.middle_name} onChange={(e) => setDriverForm((f) => ({ ...f, middle_name: e.target.value }))} placeholder="Отчество" />
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Номер телефона (E.164)</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.phone ? "#ef4444" : hintColor }} type="tel" value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+7 999 123-45-67" />
-                {driverFormErrors.phone && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.phone}</p>}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Водительский стаж (лет, мин. 3)</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.driver_experience ? "#ef4444" : hintColor }} type="number" min={3} value={driverForm.driver_experience} onChange={(e) => setDriverForm((f) => ({ ...f, driver_experience: e.target.value }))} placeholder="3" />
-                {driverFormErrors.driver_experience && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.driver_experience}</p>}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Серия и номер ВУ</label>
-                <input style={inputStyle} value={driverForm.driver_license_series_number} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_series_number: e.target.value }))} placeholder="1234 567890" />
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Страна выдачи ВУ</label>
-                <select style={inputStyle} value={driverForm.driver_license_country} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_country: e.target.value }))}>
-                  <option value="">— Выберите —</option>
-                  {fleetListsLoading ? <option>Загрузка…</option> : fleetCountries.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+          <Section header="Данные водителя">
+            <Input header="Имя" placeholder="Имя" value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: (e.target as HTMLInputElement).value }))} />
+            {driverFormErrors.first_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.first_name}</p>}
+            <Input header="Фамилия" placeholder="Фамилия" value={driverForm.last_name} onChange={(e) => setDriverForm((f) => ({ ...f, last_name: (e.target as HTMLInputElement).value }))} />
+            {driverFormErrors.last_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.last_name}</p>}
+            <Input header="Отчество" placeholder="Отчество" value={driverForm.middle_name} onChange={(e) => setDriverForm((f) => ({ ...f, middle_name: (e.target as HTMLInputElement).value }))} />
+            <Input header="Номер телефона" placeholder="+7 999 123-45-67" type="tel" value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: (e.target as HTMLInputElement).value }))} />
+            {driverFormErrors.phone && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.phone}</p>}
+            <Input header="Водительский стаж (лет, мин. 3)" placeholder="3" type="number" value={driverForm.driver_experience} onChange={(e) => setDriverForm((f) => ({ ...f, driver_experience: (e.target as HTMLInputElement).value }))} />
+            {driverFormErrors.driver_experience && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.driver_experience}</p>}
+            <Input header="Серия и номер ВУ" placeholder="1234 567890" value={driverForm.driver_license_series_number} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_series_number: (e.target as HTMLInputElement).value }))} />
+            <Cell
+              subtitle="Страна выдачи ВУ"
+              after={
+                <select
+                  value={driverForm.driver_license_country}
+                  onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_country: e.target.value }))}
+                  style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
+                >
+                  <option value="">—</option>
+                  {fleetCountries.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
                 </select>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Дата выдачи ВУ (YYYY-MM-DD)</label>
-                <input style={inputStyle} type="date" value={driverForm.driver_license_issue_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_issue_date: e.target.value }))} />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Действует до (YYYY-MM-DD)</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.driver_license_expiration_date ? "#ef4444" : hintColor }} type="date" value={driverForm.driver_license_expiration_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_expiration_date: e.target.value }))} />
-                {driverFormErrors.driver_license_expiration_date && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.driver_license_expiration_date}</p>}
-              </div>
-            </div>
+              }
+            />
+            <Input header="Дата выдачи ВУ" type="date" value={driverForm.driver_license_issue_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_issue_date: (e.target as HTMLInputElement).value }))} />
+            <Input header="Действует до" type="date" value={driverForm.driver_license_expiration_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_expiration_date: (e.target as HTMLInputElement).value }))} />
+            {driverFormErrors.driver_license_expiration_date && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.driver_license_expiration_date}</p>}
+          </Section>
 
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: textColor }}>Данные автомобиля</div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Марка</label>
-                <select style={inputStyle} value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}>
-                  <option value="">— Выберите —</option>
-                  {fleetCarBrands.map((b) => <option key={b.id} value={b.id}>{b.name ?? b.id}</option>)}
-                </select>
+          {driverCardProfile?.comment && (
+            <Section header="Комментарий">
+              <div style={{ padding: "12px 16px", fontSize: 14, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {driverCardProfile.comment}
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Модель</label>
-                <select style={inputStyle} value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))} disabled={!driverForm.car_brand}>
-                  <option value="">— Выберите —</option>
-                  {fleetCarModels.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
-                </select>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Цвет</label>
-                <select style={inputStyle} value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))}>
-                  <option value="">— Выберите —</option>
-                  {fleetColors.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
-                </select>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Год</label>
-                <input style={{ ...inputStyle, borderColor: driverFormErrors.car_year ? "#ef4444" : hintColor }} type="number" min={1990} max={2030} value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: e.target.value }))} placeholder="2020" />
-                {driverFormErrors.car_year && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.car_year}</p>}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={labelStyle}>Гос. номер</label>
-                <input style={inputStyle} value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: e.target.value }))} placeholder="А123БВ77" />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Номер СТС</label>
-                <input style={inputStyle} value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: e.target.value }))} placeholder="Номер СТС" />
-              </div>
-            </div>
+            </Section>
+          )}
 
-            {driverSaveError && (
-              <div style={{ marginBottom: 12, padding: 10, background: "rgba(239,68,68,0.1)", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>
+          <Section header="Данные автомобиля">
+            {fullDriver && !driverForm.car_id && !fullDriver.car?.id ? (
+              <Cell subtitle="Нет автомобиля" />
+            ) : (
+              <>
+                <Cell
+                  subtitle="Марка"
+                  after={
+                    <select
+                      value={driverForm.car_brand}
+                      onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}
+                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
+                    >
+                      <option value="">—</option>
+                      {fleetCarBrands.map((b) => <option key={b.id} value={b.id}>{b.name ?? b.id}</option>)}
+                    </select>
+                  }
+                />
+                <Cell
+                  subtitle="Модель"
+                  after={
+                    <select
+                      value={driverForm.car_model}
+                      onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))}
+                      disabled={!driverForm.car_brand}
+                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
+                    >
+                      <option value="">—</option>
+                      {fleetCarModels.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
+                    </select>
+                  }
+                />
+                <Cell
+                  subtitle="Цвет"
+                  after={
+                    <select
+                      value={driverForm.car_color}
+                      onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))}
+                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
+                    >
+                      <option value="">—</option>
+                      {fleetColors.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+                    </select>
+                  }
+                />
+                <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
+                {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
+                <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
+                <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
+              </>
+            )}
+          </Section>
+
+          {driverSaveError && (
+            <Section>
+              <div style={{ padding: "12px 16px", fontSize: 13, color: destructiveColor, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                 {driverSaveError}
               </div>
-            )}
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button size="l" stretched onClick={handleDriverSave} loading={driverSaveLoading} disabled={driverSaveLoading}>
+            </Section>
+          )}
+
+          <Section>
+            <div style={{ padding: 16 }}>
+              <Button size="l" stretched onClick={handleDriverSave} loading={driverSaveLoading} disabled={driverSaveLoading} style={{ marginBottom: 8 }}>
                 Сохранить
               </Button>
-              <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); setSelectedDriver(null); }} disabled={driverSaveLoading}>
+              <Button size="l" stretched mode="outline" onClick={() => { hapticImpact("light"); setSelectedDriver(null); }} disabled={driverSaveLoading}>
                 Закрыть
               </Button>
             </div>
-          </div>
-        </main>
+          </Section>
+        </List>
       </AppRoot>
     );
   }
-
-  const name = displayName(user);
 
   return (
     <AppRoot>
@@ -726,7 +810,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   <Button
                     size="l"
                     stretched
-                    mode="secondary"
+                    mode="outline"
                     onClick={handleYandexOAuth}
                     loading={yandexOAuthLoading}
                     style={{ marginBottom: 8 }}
@@ -748,7 +832,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }} style={{ marginBottom: 8 }}>
                 Добавить водителя
               </Button>
-              <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); onRegisterCourier(); }} style={{ marginBottom: 8 }}>
+              <Button size="l" stretched mode="outline" onClick={() => { hapticImpact("light"); onRegisterCourier(); }} style={{ marginBottom: 8 }}>
                 Добавить курьера
               </Button>
               {!mainTabOnly && onOpenManager && (
