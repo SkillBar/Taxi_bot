@@ -690,9 +690,36 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   </>
                 ) : (
                   <>
-                    <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
-                    <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} />
-                    <Input header="Цвет" placeholder="Серый" value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: (e.target as HTMLInputElement).value }))} />
+                    {fleetCarBrands.length > 0 ? (
+                      <Cell subtitle="Марка" after={
+                        <select value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
+                          <option value="">—</option>
+                          {fleetCarBrands.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+                        </select>
+                      } />
+                    ) : (
+                      <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
+                    )}
+                    {fleetCarModels.length > 0 ? (
+                      <Cell subtitle="Модель" after={
+                        <select value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))} disabled={!driverForm.car_brand} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
+                          <option value="">—</option>
+                          {fleetCarModels.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </select>
+                      } />
+                    ) : (
+                      <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} />
+                    )}
+                    {fleetColors.length > 0 ? (
+                      <Cell subtitle="Цвет" after={
+                        <select value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
+                          <option value="">—</option>
+                          {fleetColors.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      } />
+                    ) : (
+                      <Input header="Цвет" placeholder="Серый" value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: (e.target as HTMLInputElement).value }))} />
+                    )}
                     <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
                     {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
                     <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
