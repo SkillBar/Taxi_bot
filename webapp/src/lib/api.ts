@@ -36,6 +36,33 @@ export async function getManagerMe(): Promise<{ hasFleet: boolean; welcomeMessag
   return res.data;
 }
 
+const DRIVERS_PAGE_SIZE = 30;
+
+/** Список водителей с пагинацией. limit по умолчанию 30, offset 0. meta.hasMore — есть ли следующая страница. */
+export async function getDrivers(opts?: { limit?: number; offset?: number }): Promise<{
+  drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>;
+  meta: { source?: string; count: number; limit: number; offset: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean };
+}> {
+  const limit = opts?.limit ?? DRIVERS_PAGE_SIZE;
+  const offset = opts?.offset ?? 0;
+  const res = await api.get<{ drivers: unknown[]; meta: Record<string, unknown> }>(
+    `/api/manager/drivers?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`
+  );
+  return {
+    drivers: Array.isArray(res.data?.drivers) ? res.data.drivers as never[] : [],
+    meta: {
+      count: Number((res.data?.meta as { count?: number })?.count ?? 0),
+      limit: Number((res.data?.meta as { limit?: number })?.limit ?? limit),
+      offset: Number((res.data?.meta as { offset?: number })?.offset ?? offset),
+      hasMore: Boolean((res.data?.meta as { hasMore?: boolean })?.hasMore),
+      source: (res.data?.meta as { source?: string })?.source,
+      hint: (res.data?.meta as { hint?: string })?.hint,
+      rawCount: (res.data?.meta as { rawCount?: number })?.rawCount,
+      credsInvalid: (res.data?.meta as { credsInvalid?: boolean })?.credsInvalid,
+    },
+  };
+}
+
 /** Регистрация/привязка по номеру: находит или создаёт менеджера, привязывает к дефолтному парку. */
 export async function registerByPhone(phoneNumber: string): Promise<{ success: boolean; hasFleet: boolean; managerId?: string }> {
   const res = await api.post<{ success: boolean; hasFleet: boolean; managerId?: string }>("/api/manager/register-by-phone", {

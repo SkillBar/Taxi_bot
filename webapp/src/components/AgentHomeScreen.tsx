@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -25,8 +25,10 @@ function getTelegramWebAppUser(): { id: number; first_name?: string; last_name?:
   return { id: user.id, first_name: user.first_name, last_name: user.last_name };
 }
 
-/** Водитель "на линии": work_status === "working" и current_status в online/busy/driving. Без current_status считаем не на линии. */
-const ON_LINE_CURRENT_STATUSES = ["online", "busy", "driving"] as const;
+/** DriverStatus по документации Fleet: offline | busy | free | in_order_free | in_order_busy. */
+const DRIVER_STATUS_FREE = ["free", "online"] as const;
+const DRIVER_STATUS_BUSY = ["busy"] as const;
+const DRIVER_STATUS_IN_ORDER = ["in_order_free", "in_order_busy", "driving"] as const;
 
 export type DriverWithOptionalFields = Driver & {
   current_status?: string;
@@ -38,9 +40,14 @@ function isOnLine(d: DriverWithOptionalFields): boolean {
   if (work === "fired") return false;
   if (work !== "working") return false;
   const current = (d.current_status ?? "offline").toLowerCase();
-  return ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
+  return (
+    DRIVER_STATUS_FREE.includes(current as (typeof DRIVER_STATUS_FREE)[number]) ||
+    DRIVER_STATUS_BUSY.includes(current as (typeof DRIVER_STATUS_BUSY)[number]) ||
+    DRIVER_STATUS_IN_ORDER.includes(current as (typeof DRIVER_STATUS_IN_ORDER)[number])
+  );
 }
 
+/** Отображение статуса по документации Fleet DriverStatus (offline, busy, free, in_order_free, in_order_busy). */
 function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; color: string; icon: string } {
   const work = (d.workStatus ?? "").toLowerCase();
   if (work === "fired") return { label: "Уволен", color: "#ef4444", icon: "✕" };
@@ -48,9 +55,10 @@ function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; colo
   const current = (d.current_status ?? "offline").toLowerCase();
   if (!isWorking) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
   if (current === "busy") return { label: "Занят", color: "#f59e0b", icon: "●" };
-  if (current === "driving") return { label: "На заказе", color: "#3b82f6", icon: "●" };
-  if (current === "online") return { label: "На линии", color: "#22c55e", icon: "●" };
-  return { label: "Отдыхает", color: "#6b7280", icon: "○" };
+  if (current === "in_order_busy") return { label: "На заказе (занят)", color: "#3b82f6", icon: "●" };
+  if (current === "in_order_free" || current === "driving") return { label: "На заказе (свободен)", color: "#3b82f6", icon: "●" };
+  if (current === "free" || current === "online") return { label: "Свободен", color: "#22c55e", icon: "●" };
+  return { label: "Офлайн", color: "#6b7280", icon: "○" };
 }
 
 function displayName(me: AgentsMe | null): string {
@@ -153,7 +161,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
   const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
 
-  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
+  const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
+  const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const lastFetchDriversRef = useRef<number>(0);
   const FLEET_DEBOUNCE_MS = 700;
 
@@ -168,16 +177,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const res = await api.get<{
-        drivers?: DriverWithOptionalFields[];
-        meta?: { source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean };
-      }>("/api/manager/drivers");
-      const list = res?.data?.drivers;
-      setDrivers(Array.isArray(list) ? list : []);
-      if (res?.data?.meta) {
-        setDriversMeta(res.data.meta);
-        if (res.data.meta.credsInvalid) onCredsInvalid?.();
-      }
+      const { drivers: list, meta } = await getDrivers({ limit: 30, offset: 0 });
+      setDrivers(Array.isArray(list) ? (list as DriverWithOptionalFields[]) : []);
+      setDriversMeta(meta ? { ...meta, hasMore: meta.hasMore } : null);
+      if (meta?.credsInvalid) onCredsInvalid?.();
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { message?: string; code?: string } } };
       const status = err.response?.status;
@@ -192,6 +195,20 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       setDriversLoading(false);
     }
   }, [onCredsInvalid]);
+
+  const loadMoreDrivers = useCallback(async () => {
+    if (loadMoreLoading || !driversMeta?.hasMore) return;
+    setLoadMoreLoading(true);
+    try {
+      const { drivers: list, meta } = await getDrivers({ limit: 30, offset: drivers.length });
+      setDrivers((prev) => [...prev, ...(Array.isArray(list) ? (list as DriverWithOptionalFields[]) : [])]);
+      setDriversMeta((m) => (m && meta ? { ...m, ...meta, hasMore: meta.hasMore } : m));
+    } catch {
+      // не сбрасываем список при ошибке подгрузки
+    } finally {
+      setLoadMoreLoading(false);
+    }
+  }, [loadMoreLoading, driversMeta?.hasMore, drivers.length]);
 
   useEffect(() => {
     getAgentsMe()
@@ -394,16 +411,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     return drivers.filter((d) => d?.id && (d.workStatus ?? "").toLowerCase() !== "fired");
   }, [drivers]);
 
-  /** Приоритет статуса для сортировки: На линии → Занят → На заказе → Отдыхает (не работающие ниже). */
+  /** Приоритет статуса для сортировки по доке Fleet: free → busy → in_order_* → offline → не working. */
   const statusSortOrder = (d: DriverWithOptionalFields): number => {
     const work = (d.workStatus ?? "").toLowerCase();
-    if (work === "fired") return 4;
-    if (work !== "working") return 3; // Отдыхает
+    if (work === "fired") return 5;
+    if (work !== "working") return 4;
     const current = (d.current_status ?? "offline").toLowerCase();
-    if (current === "online") return 0;
+    if (current === "free" || current === "online") return 0;
     if (current === "busy") return 1;
-    if (current === "driving") return 2;
-    return 3;
+    if (current === "in_order_free" || current === "in_order_busy" || current === "driving") return 2;
+    return 3; // offline
   };
 
   const filteredAndSortedDrivers = useMemo(() => {
@@ -560,15 +577,21 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           )}
           <Section header="Данные водителя">
             <Input header="Имя" placeholder="Имя" value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Имя водителя в системе Fleet</p>
             {driverFormErrors.first_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.first_name}</p>}
             <Input header="Фамилия" placeholder="Фамилия" value={driverForm.last_name} onChange={(e) => setDriverForm((f) => ({ ...f, last_name: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Фамилия водителя в системе Fleet</p>
             {driverFormErrors.last_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.last_name}</p>}
             <Input header="Отчество" placeholder="Отчество" value={driverForm.middle_name} onChange={(e) => setDriverForm((f) => ({ ...f, middle_name: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Отчество (при наличии)</p>
             <Input header="Номер телефона" placeholder="+7 999 123-45-67" type="tel" value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Контактный номер для связи и входа в приложение водителя</p>
             {driverFormErrors.phone && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.phone}</p>}
             <Input header="Водительский стаж (лет, мин. 3)" placeholder="3" type="number" value={driverForm.driver_experience} onChange={(e) => setDriverForm((f) => ({ ...f, driver_experience: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Сколько лет с момента получения прав (не менее 3)</p>
             {driverFormErrors.driver_experience && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.driver_experience}</p>}
             <Input header="Серия и номер ВУ" placeholder="1234 567890" value={driverForm.driver_license_series_number} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_series_number: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Серия и номер водительского удостоверения без пробелов</p>
             <Cell
               subtitle="Страна выдачи ВУ"
               after={
@@ -584,8 +607,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 </select>
               }
             />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Трёхбуквенный код страны выдачи (например RUS)</p>
             <Input header="Дата выдачи ВУ" type="date" value={driverForm.driver_license_issue_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_issue_date: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Дата выдачи водительского удостоверения</p>
             <Input header="Действует до" type="date" value={driverForm.driver_license_expiration_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_expiration_date: (e.target as HTMLInputElement).value }))} />
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Дата окончания действия водительского удостоверения</p>
             {driverFormErrors.driver_license_expiration_date && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.driver_license_expiration_date}</p>}
           </Section>
 
@@ -627,6 +653,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     </select>
                   }
                 />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Марка автомобиля по справочнику Fleet</p>
                 <Cell
                   subtitle="Модель"
                   after={
@@ -643,6 +670,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     </select>
                   }
                 />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Модель автомобиля (зависит от выбранной марки)</p>
                 <Cell
                   subtitle="Цвет"
                   after={
@@ -658,15 +686,22 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     </select>
                   }
                 />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Цвет транспортного средства по справочнику</p>
                 <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Год выпуска автомобиля</p>
                 {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
                 {fullDriver?.car?.transmission && (
-                  <Cell subtitle="Коробка передач">
-                    {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
-                  </Cell>
+                  <>
+                    <Cell subtitle="Коробка передач">
+                      {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
+                    </Cell>
+                    <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Тип коробки передач (только для просмотра)</p>
+                  </>
                 )}
                 <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Государственный регистрационный номер автомобиля</p>
                 <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
+                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Номер свидетельства о регистрации транспортного средства</p>
               </>
             )}
           </Section>
@@ -848,6 +883,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               })
             )}
           </Section>
+
+          {driversMeta?.hasMore && (
+            <Section>
+              <div style={{ padding: "8px 16px 16px" }}>
+                <Button size="l" stretched mode="outline" onClick={loadMoreDrivers} loading={loadMoreLoading} disabled={loadMoreLoading}>
+                  Загрузить ещё
+                </Button>
+              </div>
+            </Section>
+          )}
 
           {!mainTabOnly && (
             <>

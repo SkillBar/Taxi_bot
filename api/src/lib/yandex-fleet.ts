@@ -341,7 +341,7 @@ export async function listParkDrivers(
     onRequestParams?: (p: { fields: Record<string, string[]>; queryParkId: string; limit: number; offset: number }) => void;
   } = {}
 ): Promise<YandexDriverProfile[]> {
-  const { limit = 500, offset = 0, onEmptyResponseKeys, onParseDiagnostics, onRequestParams } = opts;
+  const { limit = 30, offset = 0, onEmptyResponseKeys, onParseDiagnostics, onRequestParams } = opts;
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {

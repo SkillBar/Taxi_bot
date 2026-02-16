@@ -22,18 +22,20 @@ import {
   type FleetListType,
 } from "../lib/yandex-fleet.js";
 
+type FleetDriversMeta = { source: "fleet"; count: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number };
+
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
 const fleetDriversCache = new Map<
   string,
-  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
+  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: FleetDriversMeta; expires: number }
 >();
-function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } } | null {
+function getFleetDriversCache(key: string): { drivers: unknown[]; meta: FleetDriversMeta } | null {
   const entry = fleetDriversCache.get(key);
   return entry && entry.expires > Date.now() ? { drivers: entry.drivers, meta: entry.meta } : null;
 }
 function setFleetDriversCache(
   key: string,
-  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
+  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: FleetDriversMeta },
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });
@@ -499,14 +501,17 @@ export async function managerRoutes(app: FastifyInstance) {
   /**
    * GET /api/manager/drivers
    * Список исполнителей парка из Yandex Fleet API (driver-profiles/list по park.id).
-   * Если Fleet подключён — возвращаем полный список водителей парка; иначе — только привязанных по телефону (DriverLink).
+   * Query: limit (default 30), offset (default 0). meta.hasMore = true если есть следующая страница.
    */
-  app.get("/drivers", async (req, reply) => {
+  app.get<{ Querystring: { limit?: string; offset?: string } }>("/drivers", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) {
       req.log.warn({ step: "drivers_list", error: "manager_not_found" });
       return reply.status(401).send({ error: "Manager not found" });
     }
+
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit ?? "30", 10) || 30));
+    const offset = Math.max(0, parseInt(req.query.offset ?? "0", 10) || 0);
 
     const creds = await getManagerFleetCreds(managerId);
     const hasCreds = Boolean(creds);
@@ -515,6 +520,8 @@ export async function managerRoutes(app: FastifyInstance) {
       step: "drivers_list",
       managerId,
       hasCreds,
+      limit,
+      offset,
       parkId: creds ? `${creds.parkId.slice(0, 4)}***` : null,
       queryParkId: creds ? `${creds.parkId.slice(0, 4)}***` : null,
     });
@@ -522,8 +529,8 @@ export async function managerRoutes(app: FastifyInstance) {
     if (creds) {
       try {
         const FLEET_DRIVERS_CACHE_TTL_MS = 15_000;
-        const cacheKey = `drivers:${managerId}:${creds.parkId}`;
-        const cached = getFleetDriversCache(cacheKey);
+        const cacheKey = offset === 0 ? `drivers:${managerId}:${creds.parkId}:${limit}` : null;
+        const cached = cacheKey ? getFleetDriversCache(cacheKey) : null;
         if (cached) {
           req.log.info({ step: "drivers_list", source: "fleet", cacheHit: true, parkDriversCount: cached.drivers.length });
           const meta = cached.meta;
@@ -537,6 +544,8 @@ export async function managerRoutes(app: FastifyInstance) {
         let parseDiagnostics: { rawDriverProfilesLength?: number; parsedDriversCount?: number; firstItemSample?: string; driversWithoutName?: number } | null = null;
         let fleetResponseTopLevelKeys: string[] = [];
         const parkDrivers = await listParkDrivers(creds, {
+          limit,
+          offset,
           onRequestParams: (p) => {
             req.log.info({
               step: "drivers_list",
@@ -632,16 +641,20 @@ export async function managerRoutes(app: FastifyInstance) {
           hint = "";
         }
         if (hint && noNameSuffix) hint += noNameSuffix;
+        const hasMore = parkDrivers.length === limit;
         const responsePayload = {
           drivers,
           meta: {
             source: "fleet" as const,
             count: parkDrivers.length,
+            limit,
+            offset,
+            hasMore,
             hint: hint || undefined,
             ...(parseDiagnostics != null && typeof (parseDiagnostics as Diag).rawDriverProfilesLength === "number" && { rawCount: (parseDiagnostics as Diag).rawDriverProfilesLength }),
           },
         };
-        setFleetDriversCache(cacheKey, responsePayload, FLEET_DRIVERS_CACHE_TTL_MS);
+        if (cacheKey) setFleetDriversCache(cacheKey, responsePayload, FLEET_DRIVERS_CACHE_TTL_MS);
         return reply.send(responsePayload);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
