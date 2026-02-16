@@ -339,6 +339,28 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       .finally(() => setFleetModelsLoading(false));
   }, [selectedDriver?.id, driverForm.car_brand]);
 
+  // Нормализация марки/модели/цвета: если в форме пришло значение из API как label (название),
+  // подставляем value справочника, чтобы выпадающий список показал нужный пункт
+  useEffect(() => {
+    if (!selectedDriver) return;
+    setDriverForm((prev) => {
+      let next = { ...prev };
+      if (fleetCarBrands.length > 0 && prev.car_brand) {
+        const brandOption = fleetCarBrands.find((b) => b.value === prev.car_brand || b.label === prev.car_brand);
+        if (brandOption && brandOption.value !== prev.car_brand) next = { ...next, car_brand: brandOption.value };
+      }
+      if (fleetCarModels.length > 0 && prev.car_model) {
+        const modelOption = fleetCarModels.find((m) => m.value === prev.car_model || m.label === prev.car_model);
+        if (modelOption && modelOption.value !== prev.car_model) next = { ...next, car_model: modelOption.value };
+      }
+      if (fleetColors.length > 0 && prev.car_color) {
+        const colorOption = fleetColors.find((c) => c.value === prev.car_color || c.label === prev.car_color);
+        if (colorOption && colorOption.value !== prev.car_color) next = { ...next, car_color: colorOption.value };
+      }
+      return next;
+    });
+  }, [selectedDriver?.id, fleetCarBrands, fleetCarModels, fleetColors]);
+
   const validateDriverForm = useCallback((): Record<string, string> => {
     const err: Record<string, string> = {};
     if (!driverForm.first_name?.trim()) err.first_name = "Введите имя";

@@ -460,7 +460,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
-      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate", "brand_id", "model_id", "color_id"],
+      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate", "registration_cert", "brand_id", "model_id", "color_id"],
       // ВУ: country (CountryCode, напр. rus), number (серия и номер), issue_date/expiry_date (ISO 8601)
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
@@ -530,7 +530,10 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
       carRaw.color_id != null);
   let car: DriverFullProfileCar | null = null;
   if (hasCarData && carRaw) {
-    const regCert = carRaw.registration_certificate ?? carRaw.registration_certificate_number;
+    const regCert =
+      carRaw.registration_certificate ??
+      carRaw.registration_certificate_number ??
+      (carRaw as { registration_cert?: string }).registration_cert;
     car = {
       id: carRaw.id != null ? String(carRaw.id) : undefined,
       brand: (carRaw.brand != null ? String(carRaw.brand) : carRaw.brand_id != null ? String(carRaw.brand_id) : undefined),
