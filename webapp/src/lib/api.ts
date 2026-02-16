@@ -127,6 +127,30 @@ export async function getDriver(driverId: string): Promise<{ driver: FullDriver 
   return res.data;
 }
 
+/** Баланс и заблокированный баланс водителя (Fleet ContractorProfiles blocked-balance). */
+export type DriverBalance = { balance: number; blocked_balance?: number };
+
+export async function getDriverBalance(driverId: string): Promise<DriverBalance | null> {
+  try {
+    const res = await api.get<DriverBalance>(`/api/manager/driver/${driverId}/balance`);
+    return res.data;
+  } catch {
+    return null;
+  }
+}
+
+/** Условия работы в парке (Fleet DriverWorkRules). */
+export type DriverWorkRule = { id: string; name: string; is_enabled: boolean };
+
+export async function getDriverWorkRules(): Promise<DriverWorkRule[]> {
+  try {
+    const res = await api.get<{ rules: DriverWorkRule[] }>("/api/manager/driver-work-rules");
+    return Array.isArray(res.data?.rules) ? res.data.rules : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Обновить профиль водителя и/или авто в Fleet. */
 export async function updateDriver(
   driverId: string,

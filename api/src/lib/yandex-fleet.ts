@@ -11,6 +11,8 @@ const DRIVER_PROFILE_CREATE = `${FLEET_API_BASE}/v2/parks/contractors/driver-pro
 const DRIVER_PROFILES_UPDATE = `${FLEET_API_BASE}/v1/parks/driver-profiles/update`;
 const FLEET_PARKS = `${FLEET_API_BASE}/v1/parks`;
 const FLEET_CARS_UPDATE = `${FLEET_API_BASE}/v1/parks/cars/update`;
+const FLEET_CONTRACTORS_BLOCKED_BALANCE = `${FLEET_API_BASE}/v1/parks/contractors/blocked-balance`;
+const FLEET_DRIVER_WORK_RULES = `${FLEET_API_BASE}/v1/parks/driver-work-rules`;
 
 const FLEET_FETCH_RETRIES = 3;
 const FLEET_RETRY_DELAY_MS = 1500;
@@ -60,6 +62,8 @@ export function fleetStatusToRussian(statusCode: number): string {
 export type YandexDriverProfile = {
   yandexId: string;
   name: string | null;
+  /** Отчество (из Fleet), для отображения в списке и в карточке. */
+  middle_name?: string | null;
   phone: string;
   balance?: number;
   workStatus?: string;
@@ -332,7 +336,7 @@ export async function listParkDrivers(
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
-      driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
       car: ["id"],
     },
@@ -387,7 +391,8 @@ export async function listParkDrivers(
     }
     const firstName = (profile?.first_name != null ? String(profile.first_name) : raw.first_name != null ? String(raw.first_name) : "").trim();
     const lastName = (profile?.last_name != null ? String(profile.last_name) : raw.last_name != null ? String(raw.last_name) : "").trim();
-    let name = [firstName, lastName].filter(Boolean).join(" ") || null;
+    const middleName = (profile?.middle_name != null ? String(profile.middle_name) : raw.middle_name != null ? String(raw.middle_name) : "").trim();
+    let name = [firstName, middleName, lastName].filter(Boolean).join(" ") || null;
     if (!name && id) {
       name = "Водитель #" + id.slice(-6);
       driversWithoutName += 1;
@@ -408,7 +413,7 @@ export async function listParkDrivers(
     const current_status = (currentStatusStr != null && currentStatusStr !== "" ? currentStatusStr : "offline").toLowerCase();
     const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
     const car_id = car?.id != null ? String(car.id) : null;
-    out.push({ yandexId: id, name, phone, balance, workStatus, current_status, car_id });
+    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id });
   }
 
   if (onParseDiagnostics) {
@@ -446,7 +451,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
-      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate"],
+      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate", "brand_id", "model_id", "color_id"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
       profile: ["comment"],
@@ -473,7 +478,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const firstName = (profile?.first_name != null ? String(profile.first_name) : "").trim();
   const lastName = (profile?.last_name != null ? String(profile.last_name) : "").trim();
   const middleName = (profile?.middle_name != null ? String(profile.middle_name) : "").trim();
-  const name = [firstName, lastName].filter(Boolean).join(" ") || null;
+  const name = [firstName, middleName, lastName].filter(Boolean).join(" ") || null;
   const phones = profile?.phones ?? raw.phones;
   const phone = parsePhoneFromPhones(phones) || "";
   const accountsList = Array.isArray(d.accounts) ? d.accounts : Array.isArray((raw as { account?: unknown }).account) ? (raw as { account: Array<{ balance?: unknown }> }).account : [];
@@ -502,14 +507,23 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
 
   const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car) as Record<string, unknown> | undefined;
   const car_id = carRaw?.id != null ? String(carRaw.id) : null;
+  const hasCarData =
+    carRaw &&
+    (carRaw.id != null ||
+      carRaw.brand != null ||
+      carRaw.model != null ||
+      carRaw.color != null ||
+      carRaw.brand_id != null ||
+      carRaw.model_id != null ||
+      carRaw.color_id != null);
   let car: DriverFullProfileCar | null = null;
-  if (carRaw && (carRaw.id != null || carRaw.brand != null || carRaw.model != null)) {
+  if (hasCarData && carRaw) {
     const regCert = carRaw.registration_certificate ?? carRaw.registration_certificate_number;
     car = {
       id: carRaw.id != null ? String(carRaw.id) : undefined,
-      brand: carRaw.brand != null ? String(carRaw.brand) : undefined,
-      model: carRaw.model != null ? String(carRaw.model) : undefined,
-      color: carRaw.color != null ? String(carRaw.color) : undefined,
+      brand: (carRaw.brand != null ? String(carRaw.brand) : carRaw.brand_id != null ? String(carRaw.brand_id) : undefined),
+      model: (carRaw.model != null ? String(carRaw.model) : carRaw.model_id != null ? String(carRaw.model_id) : undefined),
+      color: (carRaw.color != null ? String(carRaw.color) : carRaw.color_id != null ? String(carRaw.color_id) : undefined),
       year: carRaw.year != null ? Number(carRaw.year) : undefined,
       number: carRaw.number != null ? String(carRaw.number) : undefined,
       registration_certificate_number: regCert != null ? String(regCert) : undefined,
@@ -766,6 +780,10 @@ export async function getFleetList(
   );
   const text = await res.text();
   if (!res.ok) {
+    if (res.status === 404) {
+      console.warn("[getFleetList] Fleet returned 404 (path_not_found), returning empty list", { type });
+      return [];
+    }
     console.error("[getFleetList] Fleet error", { type, status: res.status, body: text.slice(0, 500) });
     throw new Error(`Fleet ${type} list ${res.status}: ${text.slice(0, 300)}`);
   }
@@ -790,6 +808,47 @@ export async function getFleetList(
     console.error("[getFleetList] Fleet returned array but no valid items", { type, rawSample: arr[0] });
   }
   return items;
+}
+
+/** Баланс и заблокированный баланс водителя (ContractorProfiles API). */
+export type ContractorBalance = { balance: number; blocked_balance?: number };
+
+export async function getContractorBlockedBalance(creds: FleetCredentials, contractorId: string): Promise<ContractorBalance | null> {
+  const url = `${FLEET_CONTRACTORS_BLOCKED_BALANCE}?contractor_id=${encodeURIComponent(contractorId)}`;
+  const res = await fetchWithRetry(() =>
+    fetch(url, {
+      method: "GET",
+      headers: headersFrom(creds),
+    })
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as { balance?: string; blocked_balance?: string };
+  const balance = data.balance != null ? parseFloat(String(data.balance)) : 0;
+  const blocked_balance = data.blocked_balance != null ? parseFloat(String(data.blocked_balance)) : 0;
+  return { balance, blocked_balance };
+}
+
+/** Условия работы в парке (DriverWorkRules API). */
+export type DriverWorkRule = { id: string; name: string; is_enabled: boolean };
+
+export async function getDriverWorkRules(creds: FleetCredentials): Promise<DriverWorkRule[]> {
+  const url = `${FLEET_DRIVER_WORK_RULES}?park_id=${encodeURIComponent(creds.parkId)}`;
+  const res = await fetchWithRetry(() =>
+    fetch(url, {
+      method: "GET",
+      headers: { ...headersFrom(creds), "Accept-Language": "ru" },
+    })
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { rules?: Array<{ id?: string; name?: string; is_enabled?: boolean }> };
+  const rules = Array.isArray(data.rules) ? data.rules : [];
+  return rules
+    .filter((r) => r?.id != null)
+    .map((r) => ({
+      id: String(r.id),
+      name: (r.name ?? "").trim() || String(r.id),
+      is_enabled: Boolean(r.is_enabled),
+    }));
 }
 
 export type DriverProfileUpdatePayload = {

@@ -17,6 +17,7 @@ export interface Driver {
   id: string;
   yandexDriverId: string;
   name: string | null;
+  middle_name?: string | null;
   phone: string;
   balance?: number;
   workStatus?: string;

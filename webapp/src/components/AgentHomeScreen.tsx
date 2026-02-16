@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, updateDriver, type FleetListOption, type FullDriver } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -46,9 +46,11 @@ function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; colo
   if (work === "fired") return { label: "Уволен", color: "#ef4444", icon: "✕" };
   const isWorking = work === "working";
   const current = (d.current_status ?? "offline").toLowerCase();
-  const isOffline = current === "offline" || !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
-  if (!isWorking || isOffline) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
-  return { label: "На линии", color: "#22c55e", icon: "●" };
+  if (!isWorking) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
+  if (current === "busy") return { label: "Занят", color: "#f59e0b", icon: "●" };
+  if (current === "driving") return { label: "На заказе", color: "#3b82f6", icon: "●" };
+  if (current === "online") return { label: "На линии", color: "#22c55e", icon: "●" };
+  return { label: "Отдыхает", color: "#6b7280", icon: "○" };
 }
 
 function displayName(me: AgentsMe | null): string {
@@ -148,7 +150,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverFormErrors, setDriverFormErrors] = useState<Record<string, string>>({});
   const [driverCardLoading, setDriverCardLoading] = useState(false);
   const [fullDriver, setFullDriver] = useState<FullDriver | null>(null);
-  const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
+  const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
+  const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
@@ -222,6 +225,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     if (!selectedDriver) {
       setFullDriver(null);
       setDriverCardProfile(null);
+      setDriverWorkRules([]);
       return;
     }
     const parsed = parseDriverName(selectedDriver.name);
@@ -229,18 +233,23 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       ...prev,
       first_name: parsed.first_name,
       last_name: parsed.last_name,
-      middle_name: parsed.middle_name,
+      middle_name: selectedDriver.middle_name ?? parsed.middle_name ?? "",
       phone: selectedDriver.phone ?? "",
       car_id: (selectedDriver as { car_id?: string | null }).car_id ?? undefined,
     }));
     setFullDriver(null);
     setDriverCardProfile(null);
+    setDriverWorkRules([]);
     setDriverSaveError(null);
     setDriverFormErrors({});
     setDriverCardLoading(true);
-    getDriver(selectedDriver.id)
-      .then((res) => {
-        const full = res.driver;
+    Promise.all([
+      getDriver(selectedDriver.id),
+      getDriverBalance(selectedDriver.id),
+      getDriverWorkRules(),
+    ])
+      .then(([driverRes, balance, rules]) => {
+        const full = driverRes.driver;
         setFullDriver(full);
         setDriverForm((prev) => ({
           ...prev,
@@ -261,7 +270,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           car_number: full.car?.number ?? prev.car_number,
           car_registration_certificate_number: full.car?.registration_certificate_number ?? prev.car_registration_certificate_number,
         }));
-        setDriverCardProfile({ balance: full.balance, photo_url: full.photo_url, comment: full.comment });
+        const balanceVal = balance?.balance ?? full.balance;
+        setDriverCardProfile({
+          balance: balanceVal,
+          blocked_balance: balance?.blocked_balance,
+          photo_url: full.photo_url,
+          comment: full.comment,
+        });
+        setDriverWorkRules(Array.isArray(rules) ? rules : []);
       })
       .catch(() => {})
       .finally(() => setDriverCardLoading(false));
@@ -373,25 +389,41 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     }
   }, [selectedDriver, driverForm, fetchDrivers, validateDriverForm]);
 
-  const onLineDrivers = useMemo(() => {
-    return drivers.filter((d) => d?.id && isOnLine(d));
+  /** Все активные водители (кроме уволенных) — показываем всех со статусом На линии / Занят / На заказе / Отдыхает. */
+  const activeDrivers = useMemo(() => {
+    return drivers.filter((d) => d?.id && (d.workStatus ?? "").toLowerCase() !== "fired");
   }, [drivers]);
+
+  /** Приоритет статуса для сортировки: На линии → Занят → На заказе → Отдыхает (не работающие ниже). */
+  const statusSortOrder = (d: DriverWithOptionalFields): number => {
+    const work = (d.workStatus ?? "").toLowerCase();
+    if (work === "fired") return 4;
+    if (work !== "working") return 3; // Отдыхает
+    const current = (d.current_status ?? "offline").toLowerCase();
+    if (current === "online") return 0;
+    if (current === "busy") return 1;
+    if (current === "driving") return 2;
+    return 3;
+  };
 
   const filteredAndSortedDrivers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     let list = q
-      ? onLineDrivers.filter((d) => {
+      ? activeDrivers.filter((d) => {
           const name = (d.name ?? "").toLowerCase();
           return name.includes(q);
         })
-      : [...onLineDrivers];
+      : [...activeDrivers];
     list.sort((a, b) => {
+      const orderA = statusSortOrder(a);
+      const orderB = statusSortOrder(b);
+      if (orderA !== orderB) return orderA - orderB;
       const nameA = (a.name ?? "").trim();
       const nameB = (b.name ?? "").trim();
       return nameA.localeCompare(nameB, "ru");
     });
     return list;
-  }, [onLineDrivers, searchQuery]);
+  }, [activeDrivers, searchQuery]);
 
   /** Telegram WebApp BackButton: show() при открытой карточке, onClick → закрыть модалку (навигация назад). */
   useEffect(() => {
@@ -504,6 +536,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   {driverCardProfile.balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.balance).toFixed(2)} ₽
                 </p>
               )}
+              {driverCardProfile?.blocked_balance != null && driverCardProfile.blocked_balance !== 0 && (
+                <p style={{ margin: "2px 0 0", fontSize: 13, color: hintColor }}>
+                  Заблокировано: {driverCardProfile.blocked_balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.blocked_balance).toFixed(2)} ₽
+                </p>
+              )}
               {driverCardLoading && (
                 <div style={{ marginTop: 8 }}>
                   <Spinner size="s" />
@@ -555,6 +592,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <div style={{ padding: "12px 16px", fontSize: 14, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                 {driverCardProfile.comment}
               </div>
+            </Section>
+          )}
+
+          {driverWorkRules.length > 0 && (
+            <Section header="Условия работы">
+              {driverWorkRules.map((rule) => (
+                <Cell key={rule.id} subtitle={rule.is_enabled ? "Активно" : "Отключено"}>
+                  {rule.name}
+                </Cell>
+              ))}
             </Section>
           )}
 
@@ -647,7 +694,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           minHeight: "60vh",
           background: secondaryBgColor,
           color: textColor,
-          paddingBottom: 24,
+          paddingBottom: 88,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -718,14 +765,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         )}
 
         <List>
-          <Section
-            header={
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", flexShrink: 0 }} />
-                На линии
-              </span>
-            }
-          >
+          <Section header="Водители">
             <div style={{ padding: "0 16px 12px" }}>
               <input
                 type="text"
@@ -752,28 +792,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             ) : filteredAndSortedDrivers.length === 0 ? (
               <>
                 <Placeholder
-                  header={onLineDrivers.length === 0 ? "Никого на линии" : "Нет совпадений"}
+                  header={activeDrivers.length === 0 ? "Нет водителей" : "Нет совпадений"}
                   description={
-                    onLineDrivers.length === 0
-                      ? "Сейчас нет водителей со статусом «На линии». Остальные не отображаются."
+                    activeDrivers.length === 0
+                      ? "Список водителей пуст или парк не подключён."
                       : "Попробуйте изменить поисковый запрос."
                   }
                 />
-                {drivers.length > 0 && onLineDrivers.length === 0 && (
-                  <div
-                    style={{
-                      margin: "12px 16px",
-                      padding: 12,
-                      background: secondaryBgColor,
-                      borderRadius: 8,
-                      border: `1px solid ${hintColor}`,
-                      fontSize: 13,
-                      color: textColor,
-                    }}
-                  >
-                    Показаны только водители на линии (work_status: working, статус online/busy/driving).
-                  </div>
-                )}
                 {drivers.length === 0 && (
                   <div
                     style={{
@@ -796,22 +821,24 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 )}
               </>
             ) : (
-              filteredAndSortedDrivers.map((driver) => (
-                <Cell
-                  key={driver.id}
-                  before={<Avatar acronym={driver.name?.[0] ?? driver.phone?.[0] ?? "?"} />}
-                  subtitle={driver.phone}
-                  description={driver.balance != null ? `${driver.balance} ₽` : undefined}
-                  after={
-                    <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 500 }}>
-                      ● На линии
-                    </span>
-                  }
-                  onClick={() => { hapticImpact("light"); setSelectedDriver(driver); }}
-                >
-                  {driver.name ?? "Без имени"}
-                </Cell>
-              ))
+              filteredAndSortedDrivers.map((driver) => {
+                const status = driverDisplayStatus(driver);
+                return (
+                  <Cell
+                    key={driver.id}
+                    before={<Avatar acronym={driver.name?.[0] ?? "?"} />}
+                    description={driver.balance != null ? `${driver.balance} ₽` : undefined}
+                    after={
+                      <span style={{ fontSize: 12, color: status.color, fontWeight: 500 }}>
+                        {status.icon} {status.label}
+                      </span>
+                    }
+                    onClick={() => { hapticImpact("light"); setSelectedDriver(driver); }}
+                  >
+                    {driver.name ?? "Без имени"}
+                  </Cell>
+                );
+              })
             )}
           </Section>
 
@@ -858,27 +885,35 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             </>
           )}
 
-          <Section>
-            <div style={{ padding: "8px 16px 16px" }}>
-              <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }} style={{ marginBottom: 8 }}>
-                Добавить водителя
-              </Button>
-              <Button size="l" stretched mode="outline" onClick={() => { hapticImpact("light"); onRegisterCourier(); }} style={{ marginBottom: 8 }}>
-                Добавить курьера
-              </Button>
-              {!mainTabOnly && onOpenManager && (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={onOpenManager}
-                  style={{ width: "100%", marginTop: 8 }}
-                >
-                  Кабинет менеджера
-                </button>
-              )}
-            </div>
-          </Section>
         </List>
+
+        {/* Кнопка «Добавить водителя» фиксирована внизу над таб-баром */}
+        <div
+          style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            padding: "12px 16px",
+            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+            background: bgColor,
+            borderTop: `1px solid ${hintColor}`,
+          }}
+        >
+          <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }}>
+            Добавить водителя
+          </Button>
+          {!mainTabOnly && onOpenManager && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={onOpenManager}
+              style={{ width: "100%", marginTop: 8 }}
+            >
+              Кабинет менеджера
+            </button>
+          )}
+        </div>
       </main>
     </AppRoot>
   );

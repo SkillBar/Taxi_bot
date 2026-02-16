@@ -12,6 +12,8 @@ import {
   fleetStatusToRussian,
   getFleetList,
   getDriverProfileById,
+  getContractorBlockedBalance,
+  getDriverWorkRules,
   updateDriverProfile,
   updateCar,
   type FleetCredentials,
@@ -21,7 +23,7 @@ import {
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
 const fleetDriversCache = new Map<
   string,
-  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
+  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
 >();
 function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } } | null {
   const entry = fleetDriversCache.get(key);
@@ -29,7 +31,7 @@ function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source
 }
 function setFleetDriversCache(
   key: string,
-  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
+  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });
@@ -589,6 +591,7 @@ export async function managerRoutes(app: FastifyInstance) {
           yandexDriverId: d.yandexId,
           phone: d.phone,
           name: d.name,
+          middle_name: d.middle_name ?? null,
           balance: d.balance,
           workStatus: d.workStatus,
           current_status: d.current_status ?? undefined,
@@ -685,6 +688,7 @@ export async function managerRoutes(app: FastifyInstance) {
       yandexDriverId: l.yandexDriverId,
       phone: l.driverPhone,
       name: l.cachedName ?? null,
+      middle_name: null as string | null,
       balance: undefined,
       workStatus: undefined,
       car_id: null as string | null,
@@ -739,6 +743,47 @@ export async function managerRoutes(app: FastifyInstance) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       req.log.warn({ step: "driver_get", driverId, error: msg.slice(0, 200) });
+      return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
+    }
+  });
+
+  /**
+   * GET /api/manager/driver/:driverId/balance
+   * Баланс и заблокированный баланс водителя (Fleet ContractorProfiles blocked-balance).
+   */
+  app.get<{ Params: { driverId: string } }>("/driver/:driverId/balance", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк." });
+    const driverId = req.params.driverId?.trim();
+    if (!driverId) return reply.status(400).send({ error: "driverId required" });
+    try {
+      const balance = await getContractorBlockedBalance(creds, driverId);
+      if (!balance) return reply.status(404).send({ error: "Balance not found", message: "Баланс недоступен." });
+      return reply.send(balance);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "driver_balance", driverId, error: msg.slice(0, 200) });
+      return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
+    }
+  });
+
+  /**
+   * GET /api/manager/driver-work-rules
+   * Список условий работы в парке (Fleet DriverWorkRules).
+   */
+  app.get("/driver-work-rules", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк." });
+    try {
+      const rules = await getDriverWorkRules(creds);
+      return reply.send({ rules });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "driver_work_rules", error: msg.slice(0, 200) });
       return reply.status(502).send({ error: "Fleet error", message: msg.slice(0, 300) });
     }
   });
