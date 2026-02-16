@@ -21,7 +21,7 @@ import {
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
 const fleetDriversCache = new Map<
   string,
-  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: { status?: string }; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
+  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number }; expires: number }
 >();
 function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } } | null {
   const entry = fleetDriversCache.get(key);
@@ -29,7 +29,7 @@ function getFleetDriversCache(key: string): { drivers: unknown[]; meta: { source
 }
 function setFleetDriversCache(
   key: string,
-  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: { status?: string }; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
+  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: { source: "fleet"; count: number; hint?: string; rawCount?: number } },
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });

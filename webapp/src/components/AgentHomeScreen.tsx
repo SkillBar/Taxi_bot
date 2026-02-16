@@ -29,7 +29,7 @@ function getTelegramWebAppUser(): { id: number; first_name?: string; last_name?:
 const ON_LINE_CURRENT_STATUSES = ["online", "busy", "driving"] as const;
 
 export type DriverWithOptionalFields = Driver & {
-  current_status?: { status?: string };
+  current_status?: string;
   comment?: string;
 };
 
@@ -37,8 +37,7 @@ function isOnLine(d: DriverWithOptionalFields): boolean {
   const work = (d.workStatus ?? "").toLowerCase();
   if (work === "fired") return false;
   if (work !== "working") return false;
-  const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
-  if (current == null || current === "") return false;
+  const current = (d.current_status ?? "offline").toLowerCase();
   return ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
 }
 
@@ -46,12 +45,8 @@ function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; colo
   const work = (d.workStatus ?? "").toLowerCase();
   if (work === "fired") return { label: "Уволен", color: "#ef4444", icon: "✕" };
   const isWorking = work === "working";
-  const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
-  const isOffline =
-    current == null ||
-    current === "" ||
-    current === "offline" ||
-    !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
+  const current = (d.current_status ?? "offline").toLowerCase();
+  const isOffline = current === "offline" || !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
   if (!isWorking || isOffline) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
   return { label: "На линии", color: "#22c55e", icon: "●" };
 }

@@ -63,8 +63,8 @@ export type YandexDriverProfile = {
   phone: string;
   balance?: number;
   workStatus?: string;
-  /** Текущий статус в приложении: online | offline | busy | driving. Для «На линии» нужен work_status === 'working' и current_status в online/busy/driving. */
-  current_status?: { status?: string };
+  /** Текущий статус в приложении: online | offline | busy | driving. Приходит в ответе Fleet автоматически, в fields не запрашивать. */
+  current_status?: string;
   car_id?: string | null;
 };
 
@@ -332,7 +332,7 @@ export async function listParkDrivers(
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
-      driver_profile: ["id", "work_status", "current_status", "first_name", "last_name", "phones"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
       account: ["balance", "currency"],
       car: ["id"],
     },
@@ -402,8 +402,10 @@ export async function listParkDrivers(
     const currentStatusStr =
       currentStatusRaw != null && typeof currentStatusRaw === "object" && "status" in currentStatusRaw
         ? String((currentStatusRaw as { status?: unknown }).status ?? "")
-        : undefined;
-    const current_status = currentStatusStr != null && currentStatusStr !== "" ? { status: currentStatusStr } : undefined;
+        : typeof currentStatusRaw === "string"
+          ? currentStatusRaw
+          : undefined;
+    const current_status = (currentStatusStr != null && currentStatusStr !== "" ? currentStatusStr : "offline").toLowerCase();
     const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
     const car_id = car?.id != null ? String(car.id) : null;
     out.push({ yandexId: id, name, phone, balance, workStatus, current_status, car_id });
@@ -442,7 +444,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const body = {
     query: { park: { id: creds.parkId }, driver_profile: { id: [driverId] } },
     fields: {
-      driver_profile: ["id", "work_status", "current_status", "first_name", "last_name", "middle_name", "phones"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_certificate"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
@@ -482,8 +484,10 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const currentStatusStr =
     currentStatusRaw != null && typeof currentStatusRaw === "object" && "status" in currentStatusRaw
       ? String((currentStatusRaw as { status?: unknown }).status ?? "")
-      : undefined;
-  const current_status = currentStatusStr != null && currentStatusStr !== "" ? { status: currentStatusStr } : undefined;
+      : typeof currentStatusRaw === "string"
+        ? currentStatusRaw
+        : undefined;
+  const current_status = (currentStatusStr != null && currentStatusStr !== "" ? currentStatusStr : "offline").toLowerCase();
   const license = (raw.driver_license ?? (d as { driver_license?: Record<string, unknown> }).driver_license) as Record<string, unknown> | undefined;
   const licenseNumber = license?.number != null ? String(license.number).replace(/\s/g, "") : undefined;
   const licenseCountry = license?.country != null ? String(license.country) : undefined;
