@@ -12,6 +12,7 @@ type TelegramWA = {
   setBackgroundColor?: (color: string) => void;
   themeParams?: { bg_color?: string; secondary_bg_color?: string };
   enableVerticalSwipes?: () => void;
+  disableVerticalSwipes?: () => void;
 };
 
 export function initTelegramWebApp(): void {
@@ -29,7 +30,8 @@ export function initTelegramWebApp(): void {
       wa.setBackgroundColor?.(bg);
     }
 
-    wa.enableVerticalSwipes?.();
+    // Тяга вниз внутри экрана не закрывает Mini App (удобно для pull-to-refresh и скролла)
+    wa.disableVerticalSwipes?.();
   } catch {
     // Вне Telegram или при ошибке SDK — просто не падаем
   }

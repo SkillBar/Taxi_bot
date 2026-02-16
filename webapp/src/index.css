@@ -7,10 +7,16 @@
   --tg-viewport-stable-height: 100vh;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 #root {
   min-height: 100vh;
   min-height: var(--tg-viewport-stable-height, 100vh);
   background: var(--tg-theme-bg-color, #ffffff);
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 * {
@@ -23,6 +29,8 @@ body {
   background: var(--tg-theme-bg-color, #ffffff);
   color: var(--tg-theme-text-color, #000000);
   min-height: var(--tg-viewport-stable-height, 100vh);
+  overflow-x: hidden;
+  max-width: 100vw;
   /* Safe area по гайдлайнам Telegram Mini Apps */
   padding: 12px;
   padding-top: calc(12px + var(--tg-safe-area-inset-top, 0px));

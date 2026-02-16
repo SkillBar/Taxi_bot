@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, updateDriver, type FleetListItem } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -51,6 +51,26 @@ function displayName(me: AgentsMe | null): string {
   return [first, last].filter(Boolean).join(" ") || "Пользователь";
 }
 
+/** Парсинг ФИО: "Иванов Иван Иванович" → first_name, last_name, middle_name. */
+function parseDriverName(fullName: string | null | undefined): { first_name: string; last_name: string; middle_name: string } {
+  const parts = (fullName ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first_name: "", last_name: "", middle_name: "" };
+  if (parts.length === 1) return { first_name: parts[0], last_name: "", middle_name: "" };
+  if (parts.length === 2) return { first_name: parts[1], last_name: parts[0], middle_name: "" };
+  return {
+    first_name: parts[1],
+    last_name: parts[0],
+    middle_name: parts.slice(2).join(" "),
+  };
+}
+
+function toE164(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 10 && (digits.startsWith("8") || digits.startsWith("7"))) return "+7" + digits.slice(-10);
+  if (digits.length >= 10) return "+" + digits;
+  return phone.trim() || "";
+}
+
 export interface AgentHomeScreenProps {
   onRegisterDriver: () => void;
   onRegisterCourier: () => void;
@@ -75,6 +95,37 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
   const [pullRefreshY, setPullRefreshY] = useState<number | null>(null);
   const touchStartY = useRef<number | null>(null);
+
+  const [driverForm, setDriverForm] = useState<{
+    first_name: string;
+    last_name: string;
+    middle_name: string;
+    phone: string;
+    driver_experience: string;
+    driver_license_series_number: string;
+    driver_license_country: string;
+    driver_license_issue_date: string;
+    driver_license_expiration_date: string;
+    car_brand: string;
+    car_model: string;
+    car_color: string;
+    car_year: string;
+    car_number: string;
+    car_registration_certificate_number: string;
+    car_id?: string;
+  }>({
+    first_name: "", last_name: "", middle_name: "", phone: "",
+    driver_experience: "", driver_license_series_number: "", driver_license_country: "", driver_license_issue_date: "", driver_license_expiration_date: "",
+    car_brand: "", car_model: "", car_color: "", car_year: "", car_number: "", car_registration_certificate_number: "", car_id: undefined,
+  });
+  const [fleetCountries, setFleetCountries] = useState<FleetListItem[]>([]);
+  const [fleetCarBrands, setFleetCarBrands] = useState<FleetListItem[]>([]);
+  const [fleetCarModels, setFleetCarModels] = useState<FleetListItem[]>([]);
+  const [fleetColors, setFleetColors] = useState<FleetListItem[]>([]);
+  const [fleetListsLoading, setFleetListsLoading] = useState(false);
+  const [driverSaveLoading, setDriverSaveLoading] = useState(false);
+  const [driverSaveError, setDriverSaveError] = useState<string | null>(null);
+  const [driverFormErrors, setDriverFormErrors] = useState<Record<string, string>>({});
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
@@ -134,6 +185,112 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       })
       .catch(() => setHasFleet(false));
   }, []);
+
+  useEffect(() => {
+    if (!selectedDriver) return;
+    const parsed = parseDriverName(selectedDriver.name);
+    setDriverForm((prev) => ({
+      ...prev,
+      first_name: parsed.first_name,
+      last_name: parsed.last_name,
+      middle_name: parsed.middle_name,
+      phone: selectedDriver.phone ?? "",
+      car_id: (selectedDriver as { car_id?: string | null }).car_id ?? undefined,
+    }));
+    setDriverSaveError(null);
+    setDriverFormErrors({});
+    setFleetListsLoading(true);
+    Promise.all([
+      getFleetList("countries"),
+      getFleetList("car-brands"),
+      getFleetList("colors"),
+    ])
+      .then(([countries, brands, colors]) => {
+        setFleetCountries(Array.isArray(countries) ? countries : []);
+        setFleetCarBrands(Array.isArray(brands) ? brands : []);
+        setFleetColors(Array.isArray(colors) ? colors : []);
+      })
+      .catch(() => {})
+      .finally(() => setFleetListsLoading(false));
+    setFleetCarModels([]);
+  }, [selectedDriver?.id]);
+
+  useEffect(() => {
+    if (!selectedDriver || !driverForm.car_brand) {
+      setFleetCarModels([]);
+      return;
+    }
+    getFleetList("car-models", { brand: driverForm.car_brand })
+      .then((models) => setFleetCarModels(Array.isArray(models) ? models : []))
+      .catch(() => setFleetCarModels([]));
+  }, [selectedDriver?.id, driverForm.car_brand]);
+
+  const validateDriverForm = useCallback((): Record<string, string> => {
+    const err: Record<string, string> = {};
+    if (!driverForm.first_name?.trim()) err.first_name = "Введите имя";
+    if (!driverForm.last_name?.trim()) err.last_name = "Введите фамилию";
+    const phoneNorm = driverForm.phone.trim().replace(/\D/g, "");
+    const phoneOk = phoneNorm.length === 11 && (phoneNorm.startsWith("7") || phoneNorm.startsWith("8"));
+    if (driverForm.phone.trim() && !phoneOk) err.phone = "Номер: +7 или 8 и 11 цифр";
+    const expNum = parseInt(driverForm.driver_experience, 10);
+    if (driverForm.driver_experience.trim() && (Number.isNaN(expNum) || expNum < 3)) err.driver_experience = "Стаж не менее 3 лет";
+    const issue = driverForm.driver_license_issue_date;
+    const expir = driverForm.driver_license_expiration_date;
+    if (issue && expir && issue >= expir) err.driver_license_expiration_date = "Дата окончания должна быть позже даты выдачи";
+    const yearNum = driverForm.car_year ? parseInt(driverForm.car_year, 10) : NaN;
+    if (!Number.isNaN(yearNum) && (yearNum < 1990 || yearNum > 2030)) err.car_year = "Год от 1990 до 2030";
+    return err;
+  }, [driverForm]);
+
+  const handleDriverSave = useCallback(async () => {
+    if (!selectedDriver) return;
+    const errors = validateDriverForm();
+    if (Object.keys(errors).length > 0) {
+      setDriverFormErrors(errors);
+      return;
+    }
+    setDriverFormErrors({});
+    setDriverSaveError(null);
+    setDriverSaveLoading(true);
+    const expNum = parseInt(driverForm.driver_experience, 10);
+    const yearNum = driverForm.car_year ? parseInt(driverForm.car_year, 10) : undefined;
+    try {
+      await updateDriver(selectedDriver.id, {
+        driver_profile: {
+          first_name: driverForm.first_name.trim() || undefined,
+          last_name: driverForm.last_name.trim() || undefined,
+          middle_name: driverForm.middle_name.trim() || undefined,
+          phones: driverForm.phone.trim() ? [toE164(driverForm.phone)] : undefined,
+          driver_experience: Number.isFinite(expNum) && expNum >= 3 ? expNum : undefined,
+          driver_license: {
+            series_number: driverForm.driver_license_series_number.trim() || undefined,
+            country: driverForm.driver_license_country || undefined,
+            issue_date: driverForm.driver_license_issue_date || undefined,
+            expiration_date: driverForm.driver_license_expiration_date || undefined,
+          },
+        },
+        ...(driverForm.car_id && (driverForm.car_brand || driverForm.car_model || driverForm.car_color || driverForm.car_number || driverForm.car_registration_certificate_number) && {
+          car_id: driverForm.car_id,
+          car: {
+            brand: driverForm.car_brand || undefined,
+            model: driverForm.car_model || undefined,
+            color: driverForm.car_color || undefined,
+            year: yearNum,
+            number: driverForm.car_number.trim() || undefined,
+            registration_certificate_number: driverForm.car_registration_certificate_number.trim() || undefined,
+          },
+        }),
+      });
+      hapticImpact("light");
+      setSelectedDriver(null);
+      fetchDrivers();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string; details?: string } } };
+      setDriverSaveError(err.response?.data?.message ?? err.response?.data?.details ?? buildErrorMessage(e));
+    } finally {
+      setDriverSaveLoading(false);
+    }
+  }, [selectedDriver, driverForm, fetchDrivers, validateDriverForm]);
 
   const onLineDrivers = useMemo(() => {
     return drivers.filter((d) => d?.id && isOnLine(d));
@@ -238,64 +395,128 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
   if (selectedDriver) {
     const status = driverDisplayStatus(selectedDriver);
+    const inputStyle = {
+      width: "100%" as const,
+      boxSizing: "border-box" as const,
+      padding: "10px 12px",
+      fontSize: 15,
+      border: `1px solid ${hintColor}`,
+      borderRadius: 8,
+      background: bgColor,
+      color: textColor,
+    };
+    const labelStyle = { display: "block" as const, fontSize: 12, color: hintColor, marginBottom: 4 };
     return (
       <AppRoot>
-        <main
-          style={{
-            minHeight: "100vh",
-            background: secondaryBgColor,
-            color: textColor,
-            paddingBottom: 24,
-          }}
-        >
-          <div
-            style={{
-              margin: 16,
-              padding: 20,
-              background: bgColor,
-              borderRadius: 12,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-            }}
-          >
+        <main style={{ minHeight: "100vh", background: secondaryBgColor, color: textColor, paddingBottom: 24 }}>
+          <div style={{ margin: 16, padding: 20, background: bgColor, borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", maxHeight: "85vh", overflowY: "auto" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <Avatar size={56} acronym={selectedDriver.name?.[0] ?? selectedDriver.phone?.[0] ?? "?"} />
               <div style={{ flex: 1 }}>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: textColor }}>
-                  {selectedDriver.name ?? "Без имени"}
-                </h2>
-                <p style={{ margin: "4px 0 0", fontSize: 13, color: hintColor }}>
-                  {selectedDriver.phone}
-                </p>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: textColor }}>{selectedDriver.name ?? "Без имени"}</h2>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: status.color }}>{status.icon} {status.label}</p>
               </div>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <span style={{ fontSize: 12, color: hintColor }}>Текущий статус</span>
-              <p style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 500, color: status.color }}>
-                <span style={{ marginRight: 6 }}>{status.icon}</span>
-                {status.label}
-              </p>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: textColor }}>Данные водителя</div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Имя</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.first_name ? "#ef4444" : hintColor }} value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: e.target.value }))} placeholder="Имя" />
+                {driverFormErrors.first_name && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.first_name}</p>}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Фамилия</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.last_name ? "#ef4444" : hintColor }} value={driverForm.last_name} onChange={(e) => setDriverForm((f) => ({ ...f, last_name: e.target.value }))} placeholder="Фамилия" />
+                {driverFormErrors.last_name && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.last_name}</p>}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Отчество</label>
+                <input style={inputStyle} value={driverForm.middle_name} onChange={(e) => setDriverForm((f) => ({ ...f, middle_name: e.target.value }))} placeholder="Отчество" />
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Номер телефона (E.164)</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.phone ? "#ef4444" : hintColor }} type="tel" value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+7 999 123-45-67" />
+                {driverFormErrors.phone && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.phone}</p>}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Водительский стаж (лет, мин. 3)</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.driver_experience ? "#ef4444" : hintColor }} type="number" min={3} value={driverForm.driver_experience} onChange={(e) => setDriverForm((f) => ({ ...f, driver_experience: e.target.value }))} placeholder="3" />
+                {driverFormErrors.driver_experience && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.driver_experience}</p>}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Серия и номер ВУ</label>
+                <input style={inputStyle} value={driverForm.driver_license_series_number} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_series_number: e.target.value }))} placeholder="1234 567890" />
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Страна выдачи ВУ</label>
+                <select style={inputStyle} value={driverForm.driver_license_country} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_country: e.target.value }))}>
+                  <option value="">— Выберите —</option>
+                  {fleetListsLoading ? <option>Загрузка…</option> : fleetCountries.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Дата выдачи ВУ (YYYY-MM-DD)</label>
+                <input style={inputStyle} type="date" value={driverForm.driver_license_issue_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_issue_date: e.target.value }))} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Действует до (YYYY-MM-DD)</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.driver_license_expiration_date ? "#ef4444" : hintColor }} type="date" value={driverForm.driver_license_expiration_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_expiration_date: e.target.value }))} />
+                {driverFormErrors.driver_license_expiration_date && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.driver_license_expiration_date}</p>}
+              </div>
             </div>
 
-            {selectedDriver.balance != null && (
-              <div style={{ marginBottom: 12 }}>
-                <span style={{ fontSize: 12, color: hintColor }}>Баланс</span>
-                <p style={{ margin: "4px 0 0", fontSize: 15, color: textColor }}>{selectedDriver.balance} ₽</p>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: textColor }}>Данные автомобиля</div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Марка</label>
+                <select style={inputStyle} value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}>
+                  <option value="">— Выберите —</option>
+                  {fleetCarBrands.map((b) => <option key={b.id} value={b.id}>{b.name ?? b.id}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Модель</label>
+                <select style={inputStyle} value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))} disabled={!driverForm.car_brand}>
+                  <option value="">— Выберите —</option>
+                  {fleetCarModels.map((m) => <option key={m.id} value={m.id}>{m.name ?? m.id}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Цвет</label>
+                <select style={inputStyle} value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))}>
+                  <option value="">— Выберите —</option>
+                  {fleetColors.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Год</label>
+                <input style={{ ...inputStyle, borderColor: driverFormErrors.car_year ? "#ef4444" : hintColor }} type="number" min={1990} max={2030} value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: e.target.value }))} placeholder="2020" />
+                {driverFormErrors.car_year && <p style={{ margin: "4px 0 0", fontSize: 12, color: "#ef4444" }}>{driverFormErrors.car_year}</p>}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Гос. номер</label>
+                <input style={inputStyle} value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: e.target.value }))} placeholder="А123БВ77" />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Номер СТС</label>
+                <input style={inputStyle} value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: e.target.value }))} placeholder="Номер СТС" />
+              </div>
+            </div>
+
+            {driverSaveError && (
+              <div style={{ marginBottom: 12, padding: 10, background: "rgba(239,68,68,0.1)", borderRadius: 8, fontSize: 13, color: "#ef4444" }}>
+                {driverSaveError}
               </div>
             )}
-
-            {selectedDriver.comment && (
-              <div style={{ marginBottom: 12 }}>
-                <span style={{ fontSize: 12, color: hintColor }}>Комментарий</span>
-                <p style={{ margin: "4px 0 0", fontSize: 14, color: textColor, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {selectedDriver.comment}
-                </p>
-              </div>
-            )}
-
-            <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); setSelectedDriver(null); }} style={{ marginTop: 8 }}>
-              Закрыть
-            </Button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button size="l" stretched onClick={handleDriverSave} loading={driverSaveLoading} disabled={driverSaveLoading}>
+                Сохранить
+              </Button>
+              <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); setSelectedDriver(null); }} disabled={driverSaveLoading}>
+                Закрыть
+              </Button>
+            </div>
           </div>
         </main>
       </AppRoot>

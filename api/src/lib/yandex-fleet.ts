@@ -8,6 +8,9 @@ import { config } from "../config.js";
 const FLEET_API_BASE = "https://fleet-api.taxi.yandex.net";
 const DRIVER_PROFILES_LIST = `${FLEET_API_BASE}/v1/parks/driver-profiles/list`;
 const DRIVER_PROFILE_CREATE = `${FLEET_API_BASE}/v2/parks/contractors/driver-profile`;
+const DRIVER_PROFILES_UPDATE = `${FLEET_API_BASE}/v1/parks/driver-profiles/update`;
+const FLEET_PARKS = `${FLEET_API_BASE}/v1/parks`;
+const FLEET_CARS_UPDATE = `${FLEET_API_BASE}/v1/parks/cars/update`;
 
 const FLEET_FETCH_RETRIES = 3;
 const FLEET_RETRY_DELAY_MS = 1500;
@@ -60,6 +63,7 @@ export type YandexDriverProfile = {
   phone: string;
   balance?: number;
   workStatus?: string;
+  car_id?: string | null;
 };
 
 /** Учётные данные менеджера (из БД) или глобальный config */
@@ -305,6 +309,7 @@ export async function listParkDrivers(
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "phones"],
       account: ["balance", "currency"],
+      car: ["id"],
     },
     limit,
     offset,
@@ -368,7 +373,9 @@ export async function listParkDrivers(
     const balanceRaw = accountsList[0]?.balance ?? (raw as { balance?: unknown }).balance;
     const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
     const workStatus = (profile?.work_status != null ? String(profile.work_status) : raw.work_status != null ? String(raw.work_status) : undefined) as string | undefined;
-    out.push({ yandexId: id, name, phone, balance, workStatus });
+    const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
+    const car_id = car?.id != null ? String(car.id) : null;
+    out.push({ yandexId: id, name, phone, balance, workStatus, car_id });
   }
 
   if (onParseDiagnostics) {
@@ -588,4 +595,122 @@ export async function createDriverProfile(
   const data = JSON.parse(text) as { contractor_profile_id?: string };
   if (!data?.contractor_profile_id) throw new Error("Fleet API did not return contractor_profile_id");
   return { contractor_profile_id: data.contractor_profile_id };
+}
+
+// --- Справочники Fleet (countries, car-brands, car-models, colors) и обновление водителя/авто ---
+
+export type FleetListType = "countries" | "car-brands" | "car-models" | "colors";
+
+export type FleetListItem = { id: string; name?: string; [key: string]: unknown };
+
+/** Справочник из Fleet API: countries, car-brands, car-models (с brand), colors. */
+export async function getFleetList(
+  creds: FleetCredentials,
+  type: FleetListType,
+  params?: { brand?: string }
+): Promise<FleetListItem[]> {
+  const pathMap: Record<FleetListType, string> = {
+    countries: "countries/list",
+    "car-brands": "car-brands/list",
+    "car-models": "car-models/list",
+    colors: "colors/list",
+  };
+  const path = pathMap[type];
+  const url = `${FLEET_PARKS}/${path}`;
+  const body: Record<string, unknown> = type === "car-models" && params?.brand ? { brand_id: params.brand } : {};
+  const res = await fetchWithRetry(() =>
+    fetch(url, {
+      method: "POST",
+      headers: headersFrom(creds),
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : "{}",
+    })
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Fleet ${type} list ${res.status}: ${text.slice(0, 300)}`);
+  const data: Record<string, unknown> = (JSON.parse(text) as Record<string, unknown>) ?? {};
+  const key = type === "countries" ? "countries" : type === "car-brands" ? "brands" : type === "car-models" ? "models" : "colors";
+  const raw = data[key] ?? (data.data as Record<string, unknown> | undefined)?.[key] ?? data;
+  const arr = raw as FleetListItem[] | undefined;
+  return Array.isArray(arr) ? arr : [];
+}
+
+export type DriverProfileUpdatePayload = {
+  first_name?: string;
+  last_name?: string;
+  middle_name?: string;
+  phones?: string[];
+  driver_experience?: number;
+  driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string };
+};
+
+export type CarUpdatePayload = {
+  brand?: string;
+  model?: string;
+  color?: string;
+  year?: number;
+  number?: string;
+  registration_certificate_number?: string;
+};
+
+/** Обновление профиля водителя в Fleet (POST v1/parks/driver-profiles/update). */
+export async function updateDriverProfile(
+  creds: FleetCredentials,
+  driverId: string,
+  payload: DriverProfileUpdatePayload
+): Promise<void> {
+  const body: Record<string, unknown> = {
+    driver_profile_id: driverId,
+    ...(payload.first_name != null && { first_name: payload.first_name }),
+    ...(payload.last_name != null && { last_name: payload.last_name }),
+    ...(payload.middle_name != null && { middle_name: payload.middle_name }),
+    ...(payload.phones != null && { phones: payload.phones }),
+    ...(payload.driver_experience != null && {
+      driver_license_experience: {
+        total_since_date: new Date(Date.now() - payload.driver_experience * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      },
+    }),
+    ...(payload.driver_license != null && {
+      driver_license: {
+        ...(payload.driver_license.series_number != null && { number: payload.driver_license.series_number.replace(/\s/g, "") }),
+        ...(payload.driver_license.country != null && { country: payload.driver_license.country }),
+        ...(payload.driver_license.issue_date != null && { issue_date: payload.driver_license.issue_date }),
+        ...(payload.driver_license.expiration_date != null && { expiry_date: payload.driver_license.expiration_date }),
+      },
+    }),
+  };
+  const res = await fetchWithRetry(() =>
+    fetch(DRIVER_PROFILES_UPDATE, {
+      method: "POST",
+      headers: headersFrom(creds),
+      body: JSON.stringify(body),
+    })
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Fleet driver-profiles update ${res.status}: ${text.slice(0, 300)}`);
+}
+
+/** Обновление автомобиля в Fleet (POST v1/parks/cars/update). */
+export async function updateCar(
+  creds: FleetCredentials,
+  carId: string,
+  payload: CarUpdatePayload
+): Promise<void> {
+  const body: Record<string, unknown> = {
+    car_id: carId,
+    ...(payload.brand != null && { brand: payload.brand }),
+    ...(payload.model != null && { model: payload.model }),
+    ...(payload.color != null && { color: payload.color }),
+    ...(payload.year != null && { year: payload.year }),
+    ...(payload.number != null && { number: payload.number }),
+    ...(payload.registration_certificate_number != null && { registration_certificate: payload.registration_certificate_number }),
+  };
+  const res = await fetchWithRetry(() =>
+    fetch(FLEET_CARS_UPDATE, {
+      method: "POST",
+      headers: headersFrom(creds),
+      body: JSON.stringify(body),
+    })
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Fleet cars update ${res.status}: ${text.slice(0, 300)}`);
 }

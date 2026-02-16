@@ -67,3 +67,32 @@ export async function getYandexOAuthAuthorizeUrl(): Promise<{ url: string }> {
   const res = await api.get<{ url: string }>("/api/yandex-oauth/authorize-url");
   return res.data;
 }
+
+export type FleetListType = "countries" | "car-brands" | "car-models" | "colors";
+
+export type FleetListItem = { id: string; name?: string; [key: string]: unknown };
+
+/** Справочники Fleet для dropdown (countries, car-brands, car-models, colors). */
+export async function getFleetList(
+  type: FleetListType,
+  params?: { brand?: string }
+): Promise<FleetListItem[]> {
+  const url = type === "car-models" && params?.brand
+    ? `/api/manager/fleet-lists/${type}?brand=${encodeURIComponent(params.brand)}`
+    : `/api/manager/fleet-lists/${type}`;
+  const res = await api.get<{ items: FleetListItem[] }>(url);
+  return res.data?.items ?? [];
+}
+
+/** Обновить профиль водителя и/или авто в Fleet. */
+export async function updateDriver(
+  driverId: string,
+  body: {
+    driver_profile?: Record<string, unknown>;
+    car?: Record<string, unknown>;
+    car_id?: string;
+  }
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post<{ success: boolean; message?: string }>(`/api/manager/driver/${driverId}/update`, body);
+  return res.data;
+}

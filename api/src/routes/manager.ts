@@ -10,7 +10,11 @@ import {
   normalizePhoneForYandex,
   validateFleetCredentials,
   fleetStatusToRussian,
+  getFleetList,
+  updateDriverProfile,
+  updateCar,
   type FleetCredentials,
+  type FleetListType,
 } from "../lib/yandex-fleet.js";
 
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
@@ -586,6 +590,7 @@ export async function managerRoutes(app: FastifyInstance) {
           name: d.name,
           balance: d.balance,
           workStatus: d.workStatus,
+          car_id: d.car_id ?? null,
         }));
         type Diag = { rawDriverProfilesLength?: number; driversWithoutName?: number };
         const rawCount = (parseDiagnostics ? (parseDiagnostics as Diag).rawDriverProfilesLength : undefined) ?? 0;
@@ -680,6 +685,7 @@ export async function managerRoutes(app: FastifyInstance) {
       name: l.cachedName ?? null,
       balance: undefined,
       workStatus: undefined,
+      car_id: null as string | null,
     }));
     const hint =
       links.length === 0
@@ -689,5 +695,88 @@ export async function managerRoutes(app: FastifyInstance) {
       drivers,
       meta: { source: "driver_link" as const, count: links.length, hint },
     });
+  });
+
+  /**
+   * GET /api/manager/fleet-lists/:type
+   * Справочники Fleet: countries, car-brands, car-models, colors. Для car-models — query brand=.
+   */
+  app.get<{ Params: { type: string }; Querystring: { brand?: string } }>("/fleet-lists/:type", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк (API-ключ)." });
+    const type = req.params.type as FleetListType;
+    const allowed: FleetListType[] = ["countries", "car-brands", "car-models", "colors"];
+    if (!allowed.includes(type)) return reply.status(400).send({ error: "Invalid type", message: "type: countries | car-brands | car-models | colors" });
+    try {
+      const list = await getFleetList(creds, type, type === "car-models" ? { brand: req.query.brand } : undefined);
+      return reply.send({ items: list });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "fleet_lists", type, error: msg.slice(0, 200) });
+      return reply.status(502).send({ error: "Fleet list error", message: msg.slice(0, 300) });
+    }
+  });
+
+  /**
+   * POST /api/manager/driver/:driverId/update
+   * Body: { driver_profile?: { ... }, car?: { ... } }. Обновление водителя и/или авто в Fleet.
+   */
+  app.post<{
+    Params: { driverId: string };
+    Body: { driver_profile?: Record<string, unknown>; car?: Record<string, unknown>; car_id?: string };
+  }>("/driver/:driverId/update", async (req, reply) => {
+    const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
+    if (!managerId) return reply.status(401).send({ error: "Manager not found" });
+    const creds = await getManagerFleetCreds(managerId);
+    if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк." });
+    const driverId = req.params.driverId?.trim();
+    if (!driverId) return reply.status(400).send({ error: "driverId required" });
+    const body = (req.body as { driver_profile?: Record<string, unknown>; car?: Record<string, unknown>; car_id?: string }) ?? {};
+    try {
+      if (body.driver_profile && Object.keys(body.driver_profile).length > 0) {
+        const dp = body.driver_profile as {
+          first_name?: string;
+          last_name?: string;
+          middle_name?: string;
+          phones?: string[];
+          driver_experience?: number;
+          driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string };
+        };
+        await updateDriverProfile(creds, driverId, {
+          first_name: dp.first_name,
+          last_name: dp.last_name,
+          middle_name: dp.middle_name,
+          phones: dp.phones,
+          driver_experience: dp.driver_experience,
+          driver_license: dp.driver_license,
+        });
+      }
+      if (body.car && (body.car_id ?? (body.car as { car_id?: string }).car_id)) {
+        const carId = (body.car_id ?? (body.car as { car_id?: string }).car_id) as string;
+        const car = body.car as { brand?: string; model?: string; color?: string; year?: number; number?: string; registration_certificate_number?: string };
+        await updateCar(creds, carId, {
+          brand: car.brand,
+          model: car.model,
+          color: car.color,
+          year: car.year,
+          number: car.number,
+          registration_certificate_number: car.registration_certificate_number,
+        });
+      }
+      req.log.info({ step: "driver_update", managerId, driverId });
+      return reply.send({ success: true, message: "Данные сохранены." });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      req.log.warn({ step: "driver_update", driverId, error: msg.slice(0, 200) });
+      const statusMatch = msg.match(/Fleet (?:driver-profiles|cars) update (\d+):/);
+      const status = statusMatch ? parseInt(statusMatch[1], 10) : 502;
+      return reply.status(status > 0 && status < 600 ? status : 502).send({
+        error: "Update failed",
+        message: fleetStatusToRussian(status),
+        details: msg.slice(0, 300),
+      });
+    }
   });
 }

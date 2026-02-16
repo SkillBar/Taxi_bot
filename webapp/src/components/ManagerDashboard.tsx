@@ -21,6 +21,7 @@ export interface Driver {
   balance?: number;
   workStatus?: string;
   limit?: number;
+  car_id?: string | null;
 }
 
 export function ManagerDashboard() {
