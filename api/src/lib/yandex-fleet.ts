@@ -460,7 +460,8 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
-      car: ["id", "brand", "model", "color", "year", "number", "registration_certificate", "registration_cert", "brand_id", "model_id", "color_id"],
+      // VehicleFields по доке Fleet: только id, brand, model, year, color, number, registration_cert (и т.д.)
+      car: ["id", "brand", "model", "color", "year", "number", "registration_cert"],
       // ВУ: country (CountryCode, напр. rus), number (серия и номер), issue_date/expiry_date (ISO 8601)
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
@@ -517,7 +518,8 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const comment = profileObj?.comment != null ? String(profileObj.comment) : null;
   const photo_url = (profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url) != null ? String((profile as { photo?: string }).photo ?? (raw as { photo?: string }).photo ?? (profile as { photo_url?: string }).photo_url) : null;
 
-  const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car) as Record<string, unknown> | undefined;
+  const carsArray = (raw.cars ?? (d as { cars?: unknown[] }).cars) as Record<string, unknown>[] | undefined;
+  const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car ?? carsArray?.[0]) as Record<string, unknown> | undefined;
   const car_id = carRaw?.id != null ? String(carRaw.id) : null;
   const hasCarData =
     carRaw &&
@@ -641,12 +643,11 @@ export async function getVehicleById(creds: FleetCredentials, vehicleId: string)
     })
   );
   if (!res.ok) return null;
-  const data = (await res.json()) as {
-    vehicle_specifications?: { brand?: string; model?: string; color?: string; year?: number; transmission?: string };
-    vehicle_licenses?: { licence_plate_number?: string; registration_certificate?: string };
-  };
-  const spec = data.vehicle_specifications;
-  const licenses = data.vehicle_licenses;
+  const raw = (await res.json()) as Record<string, unknown>;
+  const payload = unwrapData(raw) as Record<string, unknown> | null;
+  const root = payload ?? raw;
+  const spec = root?.vehicle_specifications as { brand?: string; model?: string; color?: string; year?: number; transmission?: string } | undefined;
+  const licenses = root?.vehicle_licenses as { licence_plate_number?: string; registration_certificate?: string } | undefined;
   if (!spec && !licenses) return null;
   const brand = spec?.brand != null ? String(spec.brand) : undefined;
   const model = spec?.model != null ? String(spec.model) : undefined;

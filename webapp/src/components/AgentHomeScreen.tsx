@@ -340,7 +340,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   }, [selectedDriver?.id, driverForm.car_brand]);
 
   // Нормализация марки/модели/цвета: если в форме пришло значение из API как label (название),
-  // подставляем value справочника, чтобы выпадающий список показал нужный пункт
+  // подставляем value справочника, чтобы выпадающий список показал нужный пункт. Зависимость от fullDriver?.car
+  // чтобы сработать и когда данные водителя пришли после загрузки справочников.
   useEffect(() => {
     if (!selectedDriver) return;
     setDriverForm((prev) => {
@@ -359,7 +360,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       }
       return next;
     });
-  }, [selectedDriver?.id, fleetCarBrands, fleetCarModels, fleetColors]);
+  }, [selectedDriver?.id, fullDriver?.car?.brand, fullDriver?.car?.model, fullDriver?.car?.color, fleetCarBrands, fleetCarModels, fleetColors]);
 
   const validateDriverForm = useCallback((): Record<string, string> => {
     const err: Record<string, string> = {};
