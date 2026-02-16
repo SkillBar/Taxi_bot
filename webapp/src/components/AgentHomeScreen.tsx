@@ -162,6 +162,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
   const [fleetDebugData, setFleetDebugData] = useState<unknown>(null);
   const [fleetDebugLoading, setFleetDebugLoading] = useState(false);
+  /** Режим блока «Данные автомобиля»: false = просмотр (disabled из fullDriver.car), true = редактирование (text input). */
+  const [carSectionEditMode, setCarSectionEditMode] = useState(false);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
@@ -258,18 +260,26 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     }));
     setFullDriver(null);
     setDriverCardProfile(null);
+    setCarSectionEditMode(false);
     setDriverWorkRules([]);
     setDriverSaveError(null);
     setDriverFormErrors({});
     setDriverCardLoading(true);
+    setFleetListsError(null);
+    setDriverCardProfile(null);
+    // Один параллельный запрос: водитель + справочники — карточка и селекты заполняются сразу
     Promise.all([
       getDriver(selectedDriver.id),
-      getDriverBalance(selectedDriver.id),
-      getDriverWorkRules(),
+      getFleetList("countries"),
+      getFleetList("car-brands"),
+      getFleetList("colors"),
     ])
-      .then(([driverRes, balance, rules]) => {
+      .then(([driverRes, countries, brands, colors]) => {
         const full = driverRes.driver;
         setFullDriver(full);
+        setFleetCountries(Array.isArray(countries) ? countries : []);
+        setFleetCarBrands(Array.isArray(brands) ? brands : []);
+        setFleetColors(Array.isArray(colors) ? colors : []);
         setDriverForm((prev) => ({
           ...prev,
           first_name: full.first_name ?? prev.first_name,
@@ -289,43 +299,33 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           car_number: full.car?.number ?? prev.car_number,
           car_registration_certificate_number: full.car?.registration_certificate_number ?? prev.car_registration_certificate_number,
         }));
-        const balanceVal = balance?.balance ?? full.balance;
-        setDriverCardProfile({
-          balance: balanceVal,
-          blocked_balance: balance?.blocked_balance,
-          photo_url: full.photo_url,
-          comment: full.comment,
-        });
-        setDriverWorkRules(Array.isArray(rules) ? rules : []);
-      })
-      .catch(() => {})
-      .finally(() => setDriverCardLoading(false));
-    setFleetListsError(null);
-    setFleetListsLoading(true);
-    Promise.all([
-      getFleetList("countries"),
-      getFleetList("car-brands"),
-      getFleetList("colors"),
-    ])
-      .then(([countries, brands, colors]) => {
-        setFleetCountries(Array.isArray(countries) ? countries : []);
-        setFleetCarBrands(Array.isArray(brands) ? brands : []);
-        setFleetColors(Array.isArray(colors) ? colors : []);
+        setDriverCardProfile({ photo_url: full.photo_url, comment: full.comment });
+        if (full.car?.brand) {
+          getFleetList("car-models", { brand: full.car.brand }).then((models) => setFleetCarModels(Array.isArray(models) ? models : [])).catch(() => {});
+        }
       })
       .catch((err) => {
-        setFleetCountries([]);
-        setFleetCarBrands([]);
-        setFleetColors([]);
-        setFleetListsError("Не удалось загрузить справочники");
-        const msg = err?.response?.data?.message ?? err?.message ?? "Не удалось загрузить справочники";
+        setFleetListsError("Не удалось загрузить данные");
+        const msg = err?.response?.data?.message ?? err?.message ?? "Ошибка загрузки";
         if (typeof window !== "undefined" && window.Telegram?.WebApp?.showPopup) {
           window.Telegram.WebApp.showPopup({ title: "Ошибка", message: msg });
         } else {
           alert(msg);
         }
       })
-      .finally(() => setFleetListsLoading(false));
+      .finally(() => setDriverCardLoading(false));
     setFleetCarModels([]);
+    // Баланс и условия работы — в фоне, не блокируют показ карточки
+    getDriverBalance(selectedDriver.id).then((balance) => {
+      setDriverCardProfile((p) => ({
+        ...(p ?? {}),
+        balance: balance?.balance,
+        blocked_balance: balance?.blocked_balance,
+      }));
+    });
+    getDriverWorkRules().then((rules) => {
+      setDriverWorkRules(Array.isArray(rules) ? rules : []);
+    });
   }, [selectedDriver?.id]);
 
   useEffect(() => {
@@ -426,6 +426,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         }),
       });
       hapticImpact("light");
+      setCarSectionEditMode(false);
       setSelectedDriver(null);
       fetchDrivers();
     } catch (e: unknown) {
@@ -668,70 +669,46 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Cell subtitle="Нет автомобиля" />
             ) : (
               <>
-                <Cell
-                  subtitle="Марка"
-                  after={
-                    <select
-                      value={driverForm.car_brand}
-                      onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}
-                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
-                    >
-                      <option value="">—</option>
-                      {fleetListsLoading && <option disabled>Загрузка...</option>}
-                      {!fleetListsLoading && fleetCarBrands.length === 0 && <option disabled>Нет данных</option>}
-                      {fleetCarBrands.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-                    </select>
-                  }
-                />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Марка автомобиля по справочнику Fleet</p>
-                <Cell
-                  subtitle="Модель"
-                  after={
-                    <select
-                      value={driverForm.car_model}
-                      onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))}
-                      disabled={!driverForm.car_brand}
-                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
-                    >
-                      <option value="">—</option>
-                      {fleetModelsLoading && <option disabled>Загрузка...</option>}
-                      {!fleetModelsLoading && fleetCarModels.length === 0 && driverForm.car_brand && <option disabled>Нет данных</option>}
-                      {fleetCarModels.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                    </select>
-                  }
-                />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Модель автомобиля (зависит от выбранной марки)</p>
-                <Cell
-                  subtitle="Цвет"
-                  after={
-                    <select
-                      value={driverForm.car_color}
-                      onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))}
-                      style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
-                    >
-                      <option value="">—</option>
-                      {fleetListsLoading && <option disabled>Загрузка...</option>}
-                      {!fleetListsLoading && fleetColors.length === 0 && <option disabled>Нет данных</option>}
-                      {fleetColors.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                    </select>
-                  }
-                />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Цвет транспортного средства по справочнику</p>
-                <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Год выпуска автомобиля</p>
-                {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
-                {fullDriver?.car?.transmission && (
+                {!carSectionEditMode ? (
                   <>
-                    <Cell subtitle="Коробка передач">
-                      {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
-                    </Cell>
-                    <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Тип коробки передач (только для просмотра)</p>
+                    <Cell subtitle="Марка" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.brand ?? driverForm.car_brand || "—"}</span>} />
+                    <Cell subtitle="Модель" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.model ?? driverForm.car_model || "—"}</span>} />
+                    <Cell subtitle="Цвет" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.color ?? driverForm.car_color || "—"}</span>} />
+                    <Cell subtitle="Год" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.year != null ? String(fullDriver.car.year) : driverForm.car_year || "—"}</span>} />
+                    <Cell subtitle="Гос. номер" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.number ?? driverForm.car_number || "—"}</span>} />
+                    <Cell subtitle="Номер СТС" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.registration_certificate_number ?? driverForm.car_registration_certificate_number || "—"}</span>} />
+                    {fullDriver?.car?.transmission && (
+                      <Cell subtitle="Коробка передач">
+                        {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
+                      </Cell>
+                    )}
+                    <div style={{ padding: "8px 16px 12px" }}>
+                      <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(true); }}>
+                        Редактировать
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Цвет" placeholder="Серый" value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
+                    {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
+                    <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
+                    {fullDriver?.car?.transmission && (
+                      <Cell subtitle="Коробка передач (только просмотр)">
+                        {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
+                      </Cell>
+                    )}
+                    <div style={{ padding: "8px 16px 12px", display: "flex", gap: 8, flexDirection: "column" }}>
+                      <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(false); }}>
+                        Отмена
+                      </Button>
+                    </div>
                   </>
                 )}
-                <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Государственный регистрационный номер автомобиля</p>
-                <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
-                <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Номер свидетельства о регистрации транспортного средства</p>
               </>
             )}
           </Section>
