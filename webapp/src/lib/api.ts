@@ -128,8 +128,6 @@ export type FullDriverCar = {
   year?: number;
   number?: string;
   registration_certificate_number?: string;
-  /** Тип КПП: mechanical | automatic | robotic | variator (v2 vehicle_specifications). */
-  transmission?: string;
 };
 
 /** Полный профиль водителя из парка (driver + driver_license + car). Без даты рождения. */
@@ -155,15 +153,6 @@ export type FullDriver = {
 /** Полный профиль водителя из парка (для карточки). Ответ: { driver: FullDriver }. */
 export async function getDriver(driverId: string): Promise<{ driver: FullDriver }> {
   const res = await api.get<{ driver: FullDriver }>(`/api/manager/driver/${driverId}`);
-  return res.data;
-}
-
-/** Сырые ответы Fleet для диагностики (driver-profiles/list и vehicles/car). */
-export async function getDriverFleetDebug(driverId: string): Promise<{
-  driver_profiles_list: { ok: boolean; status: number; body: unknown; _hint?: string };
-  vehicle_car: { vehicle_id?: string; ok?: boolean; status?: number; body: unknown; _hint?: string };
-}> {
-  const res = await api.get(`/api/manager/driver/${driverId}/fleet-debug`);
   return res.data;
 }
 

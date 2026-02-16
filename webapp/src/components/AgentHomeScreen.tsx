@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, getDriverFleetDebug, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -160,8 +160,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [fullDriver, setFullDriver] = useState<FullDriver | null>(null);
   const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
   const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
-  const [fleetDebugData, setFleetDebugData] = useState<unknown>(null);
-  const [fleetDebugLoading, setFleetDebugLoading] = useState(false);
   /** Режим блока «Данные автомобиля»: false = просмотр (disabled из fullDriver.car), true = редактирование (text input). */
   const [carSectionEditMode, setCarSectionEditMode] = useState(false);
 
@@ -665,23 +663,20 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           )}
 
           <Section header="Данные автомобиля">
-            {fullDriver && !driverForm.car_id && !fullDriver.car?.id ? (
+            {!fullDriver && selectedDriver ? (
+              <Cell subtitle="Загрузка данных авто…" />
+            ) : fullDriver && !driverForm.car_id && !fullDriver.car?.id ? (
               <Cell subtitle="Нет автомобиля" />
-            ) : (
+            ) : !fullDriver ? null : (
               <>
                 {!carSectionEditMode ? (
                   <>
-                    <Cell subtitle="Марка" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.brand ?? driverForm.car_brand || "—"}</span>} />
-                    <Cell subtitle="Модель" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.model ?? driverForm.car_model || "—"}</span>} />
-                    <Cell subtitle="Цвет" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.color ?? driverForm.car_color || "—"}</span>} />
-                    <Cell subtitle="Год" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.year != null ? String(fullDriver.car.year) : driverForm.car_year || "—"}</span>} />
-                    <Cell subtitle="Гос. номер" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.number ?? driverForm.car_number || "—"}</span>} />
-                    <Cell subtitle="Номер СТС" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver?.car?.registration_certificate_number ?? driverForm.car_registration_certificate_number || "—"}</span>} />
-                    {fullDriver?.car?.transmission && (
-                      <Cell subtitle="Коробка передач">
-                        {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
-                      </Cell>
-                    )}
+                    <Cell subtitle="Марка" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.brand ?? driverForm.car_brand) || "—"}</span>} />
+                    <Cell subtitle="Модель" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.model ?? driverForm.car_model) || "—"}</span>} />
+                    <Cell subtitle="Цвет" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.color ?? driverForm.car_color) || "—"}</span>} />
+                    <Cell subtitle="Год" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver.car?.year != null ? String(fullDriver.car.year) : (driverForm.car_year || "—")}</span>} />
+                    <Cell subtitle="Гос. номер" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.number ?? driverForm.car_number) || "—"}</span>} />
+                    <Cell subtitle="Номер СТС" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.registration_certificate_number ?? driverForm.car_registration_certificate_number) || "—"}</span>} />
                     <div style={{ padding: "8px 16px 12px" }}>
                       <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(true); }}>
                         Редактировать
@@ -724,11 +719,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
                     <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
                     <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
-                    {fullDriver?.car?.transmission && (
-                      <Cell subtitle="Коробка передач (только просмотр)">
-                        {fullDriver.car.transmission === "automatic" ? "Автомат" : fullDriver.car.transmission === "mechanical" ? "Механика" : fullDriver.car.transmission === "robotic" ? "Робот" : fullDriver.car.transmission === "variator" ? "Вариатор" : fullDriver.car.transmission}
-                      </Cell>
-                    )}
                     <div style={{ padding: "8px 16px 12px", display: "flex", gap: 8, flexDirection: "column" }}>
                       <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(false); }}>
                         Отмена
@@ -737,38 +727,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   </>
                 )}
               </>
-            )}
-          </Section>
-
-          <Section header="Диагностика Fleet">
-            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor }}>
-              Посмотреть, что именно возвращает Яндекс по водителю и машине (driver-profiles/list и vehicles/car).
-            </p>
-            <Button
-              size="m"
-              stretched
-              onClick={async () => {
-                if (!selectedDriver) return;
-                setFleetDebugLoading(true);
-                setFleetDebugData(null);
-                try {
-                  const data = await getDriverFleetDebug(selectedDriver.id);
-                  setFleetDebugData(data);
-                } catch {
-                  setFleetDebugData({ error: "Не удалось загрузить" });
-                } finally {
-                  setFleetDebugLoading(false);
-                }
-              }}
-              loading={fleetDebugLoading}
-              disabled={fleetDebugLoading || !selectedDriver}
-            >
-              Показать ответ Fleet
-            </Button>
-            {fleetDebugData != null && (
-              <pre style={{ margin: "12px 16px", padding: 12, background: "var(--tg-theme-secondary-bg-color)", borderRadius: 8, fontSize: 11, overflow: "auto", maxHeight: 360, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                {typeof fleetDebugData === "object" ? JSON.stringify(fleetDebugData, null, 2) : String(fleetDebugData)}
-              </pre>
             )}
           </Section>
 

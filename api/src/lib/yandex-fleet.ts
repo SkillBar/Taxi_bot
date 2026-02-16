@@ -15,7 +15,7 @@ const FLEET_CONTRACTORS_BLOCKED_BALANCE = `${FLEET_API_BASE}/v1/parks/contractor
 const FLEET_DRIVER_WORK_RULES = `${FLEET_API_BASE}/v1/parks/driver-work-rules`;
 /** GET профиль одного водителя (v2 ContractorProfiles): person.full_name, driver_license, profile, account.work_rule_id, car_id */
 const FLEET_DRIVER_PROFILE_V2 = `${FLEET_API_BASE}/v2/parks/contractors/driver-profile`;
-/** GET данные автомобиля (v2 Cars): vehicle_specifications (brand, model, color, year, transmission), vehicle_licenses (licence_plate_number, registration_certificate). */
+/** GET данные автомобиля (v2 Cars): vehicle_specifications (brand, model, color, year), vehicle_licenses (licence_plate_number, registration_certificate). */
 const FLEET_VEHICLES_CAR_V2 = `${FLEET_API_BASE}/v2/parks/vehicles/car`;
 
 const FLEET_FETCH_RETRIES = 3;
@@ -85,8 +85,6 @@ export type DriverFullProfileCar = {
   year?: number;
   number?: string;
   registration_certificate_number?: string;
-  /** Тип КПП: mechanical | automatic | robotic | variator (v2 vehicle_specifications). */
-  transmission?: string;
 };
 
 /** Полный профиль одного водителя для карточки (без даты рождения). */
@@ -618,7 +616,7 @@ export async function getDriverProfileV2(creds: FleetCredentials, contractorProf
 
 /**
  * Получить данные автомобиля по v2 API (GET /v2/parks/vehicles/car).
- * VehicleSpecifications: brand, model, color, year, transmission; VehicleLicenses: licence_plate_number, registration_certificate.
+ * VehicleSpecifications: brand, model, color, year; VehicleLicenses: licence_plate_number, registration_certificate.
  */
 export async function getVehicleById(creds: FleetCredentials, vehicleId: string): Promise<DriverFullProfileCar | null> {
   const url = `${FLEET_VEHICLES_CAR_V2}?vehicle_id=${encodeURIComponent(vehicleId)}`;
@@ -632,14 +630,13 @@ export async function getVehicleById(creds: FleetCredentials, vehicleId: string)
   const raw = (await res.json()) as Record<string, unknown>;
   const payload = unwrapData(raw) as Record<string, unknown> | null;
   const root = payload ?? raw;
-  const spec = root?.vehicle_specifications as { brand?: string; model?: string; color?: string; year?: number; transmission?: string } | undefined;
+  const spec = root?.vehicle_specifications as { brand?: string; model?: string; color?: string; year?: number } | undefined;
   const licenses = root?.vehicle_licenses as { licence_plate_number?: string; registration_certificate?: string } | undefined;
   if (!spec && !licenses) return null;
   const brand = spec?.brand != null ? String(spec.brand) : undefined;
   const model = spec?.model != null ? String(spec.model) : undefined;
   const color = spec?.color != null ? String(spec.color) : undefined;
   const year = spec?.year != null ? Number(spec.year) : undefined;
-  const transmission = spec?.transmission != null ? String(spec.transmission) : undefined;
   const number = licenses?.licence_plate_number != null ? String(licenses.licence_plate_number) : undefined;
   const registration_certificate_number = licenses?.registration_certificate != null ? String(licenses.registration_certificate) : undefined;
   if (!brand && !model && !color && !year && !number && !registration_certificate_number) return null;
@@ -651,11 +648,10 @@ export async function getVehicleById(creds: FleetCredentials, vehicleId: string)
     year,
     number,
     registration_certificate_number,
-    transmission,
   };
 }
 
-/** Тело запроса driver-profiles/list для одного водителя (для диагностики и getDriverProfileById). */
+/** Тело запроса driver-profiles/list для одного водителя. */
 function driverProfileListBody(parkId: string, driverId: string) {
   return {
     query: { park: { id: parkId }, driver_profile: { id: [driverId] } },
@@ -670,40 +666,6 @@ function driverProfileListBody(parkId: string, driverId: string) {
     limit: 1,
     offset: 0,
   };
-}
-
-/**
- * Сырой ответ Fleet: driver-profiles/list (один водитель). Для диагностики — смотреть в каком виде приходят car/brand/model.
- */
-export async function getDriverProfilesListRaw(
-  creds: FleetCredentials,
-  driverId: string
-): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const body = driverProfileListBody(creds.parkId, driverId);
-  const res = await fetchWithRetry(() =>
-    fetch(DRIVER_PROFILES_LIST, {
-      method: "POST",
-      headers: headersFrom(creds),
-      body: JSON.stringify(body),
-    })
-  );
-  const bodyJson = (await res.json()) as unknown;
-  return { ok: res.ok, status: res.status, body: bodyJson };
-}
-
-/**
- * Сырой ответ Fleet: GET /v2/parks/vehicles/car. Для диагностики — смотреть структуру vehicle_specifications / data.
- */
-export async function getVehicleByIdRaw(
-  creds: FleetCredentials,
-  vehicleId: string
-): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const url = `${FLEET_VEHICLES_CAR_V2}?vehicle_id=${encodeURIComponent(vehicleId)}`;
-  const res = await fetchWithRetry(() =>
-    fetch(url, { method: "GET", headers: headersFrom(creds) })
-  );
-  const bodyJson = (await res.json()) as unknown;
-  return { ok: res.ok, status: res.status, body: bodyJson };
 }
 
 /**
