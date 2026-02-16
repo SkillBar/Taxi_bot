@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { backButton } from "@telegram-apps/sdk-react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import {
   List,
@@ -14,14 +15,33 @@ import { api, getManagerMe, getYandexOAuthAuthorizeUrl } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
-import { DriverDetails } from "./DriverDetails";
 import type { Driver } from "./ManagerDashboard";
 
-function statusLabel(workStatus?: string): string {
-  const s = workStatus?.toLowerCase();
-  if (s === "working" || s === "online" || s === "free") return "На линии";
-  if (s === "busy") return "Занят";
-  return "Офлайн";
+/** Водитель "на линии": work_status === "working" и (если есть) current_status в online/busy/driving */
+const ON_LINE_CURRENT_STATUSES = ["online", "busy", "driving"] as const;
+
+export type DriverWithOptionalFields = Driver & {
+  current_status?: { status?: string };
+  comment?: string;
+};
+
+function isOnLine(d: DriverWithOptionalFields): boolean {
+  const work = (d.workStatus ?? "").toLowerCase();
+  if (work === "fired") return false;
+  if (work !== "working") return false;
+  const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
+  if (current != null && current !== "") return ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]);
+  return true;
+}
+
+function driverDisplayStatus(d: DriverWithOptionalFields): { label: string; color: string; icon: string } {
+  const work = (d.workStatus ?? "").toLowerCase();
+  if (work === "fired") return { label: "Уволен", color: "#ef4444", icon: "✕" };
+  const isWorking = work === "working";
+  const current = (d as DriverWithOptionalFields).current_status?.status?.toLowerCase();
+  const isOffline = current === "offline" || (current != null && current !== "" && !ON_LINE_CURRENT_STATUSES.includes(current as (typeof ON_LINE_CURRENT_STATUSES)[number]));
+  if (!isWorking || isOffline) return { label: "Отдыхает", color: "#6b7280", icon: "○" };
+  return { label: "На линии", color: "#22c55e", icon: "●" };
 }
 
 function displayName(me: AgentsMe | null): string {
@@ -35,17 +55,16 @@ export interface AgentHomeScreenProps {
   onRegisterDriver: () => void;
   onRegisterCourier: () => void;
   onOpenManager?: () => void;
-  /** Только список исполнителей и кнопки «Добавить водителя» / «Добавить курьера» внизу (для таба «Главная»). */
   mainTabOnly?: boolean;
-  /** Вызывается, когда бэкенд сбросил creds (401/403 от Fleet) — показать онбординг снова. */
   onCredsInvalid?: () => void;
 }
 
 export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly, onCredsInvalid }: AgentHomeScreenProps) {
   const [user, setUser] = useState<AgentsMe | null>(null);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [drivers, setDrivers] = useState<DriverWithOptionalFields[]>([]);
   const [driversLoading, setDriversLoading] = useState(true);
-  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<DriverWithOptionalFields | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [linking, setLinking] = useState(false);
   const [driversLoadError, setDriversLoadError] = useState<string | null>(null);
@@ -54,18 +73,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [yandexOAuthError, setYandexOAuthError] = useState<string | null>(null);
   const [hasFleet, setHasFleet] = useState<boolean | null>(null);
   const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    getAgentsMe()
-      .then((me) => setUser(me ?? null))
-      .catch(() => setUser(null));
-  }, []);
+  const [pullRefreshY, setPullRefreshY] = useState<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const lastFetchDriversRef = useRef<number>(0);
   const FLEET_DEBOUNCE_MS = 700;
 
-  const fetchDrivers = async () => {
+  const fetchDrivers = useCallback(async () => {
     const now = Date.now();
     if (now - lastFetchDriversRef.current < FLEET_DEBOUNCE_MS) {
       setDriversLoading(false);
@@ -76,7 +91,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const res = await api.get<{ drivers?: Driver[]; meta?: { source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean } }>("/api/manager/drivers");
+      const res = await api.get<{
+        drivers?: DriverWithOptionalFields[];
+        meta?: { source?: string; count?: number; hint?: string; rawCount?: number; credsInvalid?: boolean };
+      }>("/api/manager/drivers");
       const list = res?.data?.drivers;
       setDrivers(Array.isArray(list) ? list : []);
       if (res?.data?.meta) {
@@ -96,11 +114,17 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     } finally {
       setDriversLoading(false);
     }
-  };
+  }, [onCredsInvalid]);
+
+  useEffect(() => {
+    getAgentsMe()
+      .then((me) => setUser(me ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   useEffect(() => {
     fetchDrivers();
-  }, []);
+  }, [fetchDrivers]);
 
   useEffect(() => {
     getManagerMe()
@@ -110,6 +134,47 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       })
       .catch(() => setHasFleet(false));
   }, []);
+
+  const onLineDrivers = useMemo(() => {
+    return drivers.filter((d) => d?.id && isOnLine(d));
+  }, [drivers]);
+
+  const filteredAndSortedDrivers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    let list = q
+      ? onLineDrivers.filter((d) => {
+          const name = (d.name ?? "").toLowerCase();
+          return name.includes(q);
+        })
+      : [...onLineDrivers];
+    list.sort((a, b) => {
+      const nameA = (a.name ?? "").trim();
+      const nameB = (b.name ?? "").trim();
+      return nameA.localeCompare(nameB, "ru");
+    });
+    return list;
+  }, [onLineDrivers, searchQuery]);
+
+  useEffect(() => {
+    if (!selectedDriver) {
+      try {
+        if (backButton?.hide?.isAvailable?.()) backButton.hide();
+      } catch {
+        /**/
+      }
+      return;
+    }
+    try {
+      if (backButton?.show?.isAvailable?.()) backButton.show();
+      const off = backButton?.onClick?.isAvailable?.() ? backButton.onClick(() => { hapticImpact("light"); setSelectedDriver(null); }) : () => {};
+      return () => {
+        if (typeof off === "function") off();
+        if (backButton?.hide?.isAvailable?.()) backButton.hide();
+      };
+    } catch {
+      return () => {};
+    }
+  }, [selectedDriver]);
 
   const handleYandexOAuth = async () => {
     setYandexOAuthError(null);
@@ -138,7 +203,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       await api.post("/api/manager/link-driver", { phone });
       setNewPhone("");
       await fetchDrivers();
-      alert("Водитель успешно привязан!");
+      if (typeof window !== "undefined" && window.Telegram?.WebApp?.showPopup) {
+        window.Telegram.WebApp.showPopup({ title: "Готово", message: "Водитель успешно привязан." });
+      } else {
+        alert("Водитель успешно привязан!");
+      }
     } catch (e: unknown) {
       setLinkError(formatStageError(STAGES.LINK_DRIVER, ENDPOINTS.LINK_DRIVER, buildErrorMessage(e)));
     } finally {
@@ -146,21 +215,88 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     }
   };
 
+  const themeParams = typeof window !== "undefined" ? window.Telegram?.WebApp?.themeParams : undefined;
+  const bgColor = themeParams?.bg_color ?? "var(--tg-theme-bg-color, #ffffff)";
+  const textColor = themeParams?.text_color ?? "var(--tg-theme-text-color, #000000)";
+  const hintColor = themeParams?.hint_color ?? "var(--tg-theme-hint-color, #999999)";
+  const secondaryBgColor = themeParams?.secondary_bg_color ?? "var(--tg-theme-secondary-bg-color, #f5f5f5)";
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (window.scrollY <= 5) touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartY.current == null) return;
+    const y = e.touches[0].clientY;
+    const delta = y - touchStartY.current;
+    if (delta > 60) setPullRefreshY(delta);
+  };
+  const handleTouchEnd = () => {
+    if (pullRefreshY != null && pullRefreshY > 80) fetchDrivers();
+    touchStartY.current = null;
+    setPullRefreshY(null);
+  };
+
   if (selectedDriver) {
+    const status = driverDisplayStatus(selectedDriver);
     return (
       <AppRoot>
-        <main style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", paddingBottom: 24 }}>
-          <div style={{ padding: 12 }}>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setSelectedDriver(null)}
-              style={{ marginBottom: 8 }}
-            >
-              ← Назад
-            </button>
+        <main
+          style={{
+            minHeight: "100vh",
+            background: secondaryBgColor,
+            color: textColor,
+            paddingBottom: 24,
+          }}
+        >
+          <div
+            style={{
+              margin: 16,
+              padding: 20,
+              background: bgColor,
+              borderRadius: 12,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <Avatar size={56} acronym={selectedDriver.name?.[0] ?? selectedDriver.phone?.[0] ?? "?"} />
+              <div style={{ flex: 1 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: textColor }}>
+                  {selectedDriver.name ?? "Без имени"}
+                </h2>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: hintColor }}>
+                  {selectedDriver.phone}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: hintColor }}>Текущий статус</span>
+              <p style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 500, color: status.color }}>
+                <span style={{ marginRight: 6 }}>{status.icon}</span>
+                {status.label}
+              </p>
+            </div>
+
+            {selectedDriver.balance != null && (
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: hintColor }}>Баланс</span>
+                <p style={{ margin: "4px 0 0", fontSize: 15, color: textColor }}>{selectedDriver.balance} ₽</p>
+              </div>
+            )}
+
+            {selectedDriver.comment && (
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: hintColor }}>Комментарий</span>
+                <p style={{ margin: "4px 0 0", fontSize: 14, color: textColor, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {selectedDriver.comment}
+                </p>
+              </div>
+            )}
+
+            <Button size="l" stretched mode="secondary" onClick={() => { hapticImpact("light"); setSelectedDriver(null); }} style={{ marginTop: 8 }}>
+              Закрыть
+            </Button>
           </div>
-          <DriverDetails driver={selectedDriver} onBack={() => setSelectedDriver(null)} />
         </main>
       </AppRoot>
     );
@@ -173,11 +309,27 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       <main
         style={{
           minHeight: "60vh",
-          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
-          color: "var(--tg-theme-text-color, #000000)",
+          background: secondaryBgColor,
+          color: textColor,
           paddingBottom: 24,
         }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
+        {pullRefreshY != null && pullRefreshY > 40 && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: 12,
+              fontSize: 13,
+              color: hintColor,
+            }}
+          >
+            {pullRefreshY > 80 ? "Отпустите для обновления" : "Потяните для обновления"}
+          </div>
+        )}
+
         {welcomeMessage && (
           <div
             style={{
@@ -202,9 +354,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             </button>
           </div>
         )}
+
         {!mainTabOnly && (
-          <div style={{ padding: "12px 16px", background: "var(--tg-theme-secondary-bg-color, #f5f5f5)", color: "var(--tg-theme-text-color, #000)" }}>
-            <p style={{ fontSize: 14, color: "var(--tg-theme-hint-color, #333)", margin: 0 }}>
+          <div style={{ padding: "12px 16px", background: secondaryBgColor, color: textColor }}>
+            <p style={{ fontSize: 14, color: hintColor, margin: 0 }}>
               {name ? `${name}, добро пожаловать!` : "Добро пожаловать в кабинет агента такси!"}
             </p>
           </div>
@@ -215,10 +368,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             style={{
               margin: 16,
               padding: 12,
-              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+              background: secondaryBgColor,
               borderRadius: 8,
-              border: "1px solid var(--tg-theme-destructive-text-color, #c00)",
-              color: "var(--tg-theme-text-color, #000)",
+              border: "1px solid var(--tg-theme-destructive-text-color, #ef4444)",
+              color: textColor,
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
               fontSize: 13,
@@ -229,56 +382,96 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         )}
 
         <List>
-          <Section header="Исполнители">
+          <Section
+            header={
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", flexShrink: 0 }} />
+                На линии
+              </span>
+            }
+          >
+            <div style={{ padding: "0 16px 12px" }}>
+              <input
+                type="text"
+                placeholder="Поиск по имени водителя"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "10px 12px",
+                  fontSize: 15,
+                  border: `1px solid ${hintColor}`,
+                  borderRadius: 8,
+                  background: bgColor,
+                  color: textColor,
+                }}
+              />
+            </div>
+
             {driversLoading ? (
               <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
                 <Spinner size="l" />
               </div>
-            ) : drivers.length === 0 ? (
+            ) : filteredAndSortedDrivers.length === 0 ? (
               <>
-                <Placeholder header="Исполнители не найдены" description="Список водителей парка пуст или недоступен." />
-                <div
-                  style={{
-                    margin: "12px 16px",
-                    padding: 12,
-                    background: "var(--tg-theme-secondary-bg-color, #f0f0f0)",
-                    borderRadius: 8,
-                    border: "1px solid var(--tg-theme-hint-color, #ccc)",
-                    fontSize: 13,
-                    color: "var(--tg-theme-text-color, #000)",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>В чём причина:</div>
-                  <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {driversMeta != null && (driversMeta.hint ?? "").trim() !== ""
-                      ? driversMeta.hint
-                      : hasFleet === false
-                        ? "Парк не подключён. Подключите парк (API-ключ Fleet) в онбординге или в Кабинете — тогда здесь появится список водителей парка."
-                        : driversMeta != null
-                          ? `Источник: ${driversMeta.source === "fleet" ? "Fleet API" : "привязки по телефону"}.${driversMeta.rawCount != null ? ` Fleet вернул ${driversMeta.rawCount} записей, отображено ${driversMeta.count ?? 0}.` : ` Записей: ${driversMeta.count ?? 0}.`}${driversMeta.source === "fleet" ? " Проверьте ID парка и права API-ключа в fleet.yandex.ru." : " Подключите парк (API-ключ) в онбординге."}`
-                          : "Список пуст. Подключите парк в онбординге (API-ключ и ID парка из fleet.yandex.ru) или проверьте, что бэкенд обновлён и возвращает meta.hint. В логах ищите: step=drivers_list, parkDriversCount, listParkDrivers_failed."}
+                <Placeholder
+                  header={onLineDrivers.length === 0 ? "Никого на линии" : "Нет совпадений"}
+                  description={
+                    onLineDrivers.length === 0
+                      ? "Сейчас нет водителей со статусом «На линии». Остальные не отображаются."
+                      : "Попробуйте изменить поисковый запрос."
+                  }
+                />
+                {drivers.length > 0 && onLineDrivers.length === 0 && (
+                  <div
+                    style={{
+                      margin: "12px 16px",
+                      padding: 12,
+                      background: secondaryBgColor,
+                      borderRadius: 8,
+                      border: `1px solid ${hintColor}`,
+                      fontSize: 13,
+                      color: textColor,
+                    }}
+                  >
+                    Показаны только водители на линии (work_status: working, статус online/busy/driving).
                   </div>
-                </div>
+                )}
+                {drivers.length === 0 && (
+                  <div
+                    style={{
+                      margin: "12px 16px",
+                      padding: 12,
+                      background: secondaryBgColor,
+                      borderRadius: 8,
+                      border: `1px solid ${hintColor}`,
+                      fontSize: 13,
+                      color: textColor,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {driversMeta?.hint?.trim() ||
+                      (hasFleet === false
+                        ? "Парк не подключён. Подключите парк в онбординге."
+                        : "Список пуст. Проверьте парк и API-ключ в fleet.yandex.ru.")}
+                  </div>
+                )}
               </>
             ) : (
-              drivers.filter((d) => d?.id).map((driver) => (
+              filteredAndSortedDrivers.map((driver) => (
                 <Cell
                   key={driver.id}
-                  before={
-                    <Avatar acronym={driver.name?.[0] ?? driver.phone?.[0] ?? "?"} />
-                  }
+                  before={<Avatar acronym={driver.name?.[0] ?? driver.phone?.[0] ?? "?"} />}
                   subtitle={driver.phone}
-                  description={
-                    driver.balance != null || driver.limit != null
-                      ? [driver.balance != null ? `${driver.balance} ₽` : null, driver.limit != null ? `${driver.limit} ₽` : null].filter(Boolean).join(" ")
-                      : undefined
-                  }
+                  description={driver.balance != null ? `${driver.balance} ₽` : undefined}
                   after={
-                    <span style={{ fontSize: 12, color: "var(--tg-theme-hint-color, #666666)" }}>
-                      {statusLabel(driver.workStatus)}
+                    <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 500 }}>
+                      ● На линии
                     </span>
                   }
-                  onClick={() => setSelectedDriver(driver)}
+                  onClick={() => { hapticImpact("light"); setSelectedDriver(driver); }}
                 >
                   {driver.name ?? "Без имени"}
                 </Cell>
@@ -300,7 +493,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     Найти и привязать
                   </Button>
                   {linkError && (
-                    <p style={{ marginTop: 12, fontSize: 13, color: "var(--tg-theme-destructive-text-color, #c00)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    <p style={{ marginTop: 12, fontSize: 13, color: "var(--tg-theme-destructive-text-color, #ef4444)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                       {linkError}
                     </p>
                   )}
@@ -320,7 +513,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     Подключить Яндекс Про / Войти через Яндекс
                   </Button>
                   {yandexOAuthError && (
-                    <p style={{ color: "var(--tg-theme-destructive-text-color, #c00)", fontSize: 14, marginTop: 8 }}>
+                    <p style={{ color: "var(--tg-theme-destructive-text-color, #ef4444)", fontSize: 14, marginTop: 8 }}>
                       {yandexOAuthError}
                     </p>
                   )}
