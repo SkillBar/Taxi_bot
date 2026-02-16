@@ -470,8 +470,6 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const balanceRaw = accountsList[0]?.balance ?? (raw as { balance?: unknown }).balance;
   const balance = balanceRaw != null ? parseFloat(String(balanceRaw)) : undefined;
   const workStatus = (profile?.work_status != null ? String(profile.work_status) : raw.work_status != null ? String(raw.work_status) : undefined) as string | undefined;
-  const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
-  const car_id = car?.id != null ? String(car.id) : null;
   const license = (raw.driver_license ?? (d as { driver_license?: Record<string, unknown> }).driver_license) as Record<string, unknown> | undefined;
   const licenseNumber = license?.number != null ? String(license.number).replace(/\s/g, "") : undefined;
   const licenseCountry = license?.country != null ? String(license.country) : undefined;
@@ -485,6 +483,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const photo_url = (profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url) != null ? String((profile as { photo?: string }).photo ?? (raw as { photo?: string }).photo ?? (profile as { photo_url?: string }).photo_url) : null;
 
   const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car) as Record<string, unknown> | undefined;
+  const car_id = carRaw?.id != null ? String(carRaw.id) : null;
   let car: DriverFullProfileCar | null = null;
   if (carRaw && (carRaw.id != null || carRaw.brand != null || carRaw.model != null)) {
     const regCert = carRaw.registration_certificate ?? carRaw.registration_certificate_number;
