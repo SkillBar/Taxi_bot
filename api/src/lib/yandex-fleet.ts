@@ -899,12 +899,16 @@ export async function getFleetList(
   };
   const path = pathMap[type];
   const url = `${FLEET_PARKS}/${path}`;
-  const body: Record<string, unknown> = type === "car-models" && params?.brand ? { brand_id: params.brand } : {};
+  // Fleet API ожидает query.park.id для списков (как в driver-profiles/list)
+  const body: Record<string, unknown> = {
+    query: { park: { id: creds.parkId } },
+    ...(type === "car-models" && params?.brand ? { brand_id: params.brand } : {}),
+  };
   const res = await fetchWithRetry(() =>
     fetch(url, {
       method: "POST",
       headers: headersFrom(creds),
-      body: Object.keys(body).length > 0 ? JSON.stringify(body) : "{}",
+      body: JSON.stringify(body),
     })
   );
   const text = await res.text();
