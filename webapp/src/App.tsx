@@ -261,6 +261,24 @@ export default function App() {
     }
   }, []);
 
+  // На главном экране запрещаем скролл страницы — скроллится только блок со списком, низ (кнопка + таб-бар) всегда виден
+  useEffect(() => {
+    if (screen !== "home") return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyHeight = body.style.height;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.height = "100dvh";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.height = prevBodyHeight;
+    };
+  }, [screen]);
+
   const handleDraftError = (e: Error & { agentNotFound?: boolean }) => {
     if (e.agentNotFound) {
       setLinked(false);
@@ -367,9 +385,11 @@ export default function App() {
     setScreen("home");
   };
 
-  // Обёртка: нативная тема Telegram (--tg-theme-*)
+  // Обёртка: нативная тема Telegram (--tg-theme-*). На главном — фиксированная высота, чтобы низ не уезжал при скролле.
   const wrapperStyle: React.CSSProperties = {
-    minHeight: "100vh",
+    ...(screen === "home"
+      ? { height: "100dvh", minHeight: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column" }
+      : { minHeight: "100vh" }),
     background: "var(--tg-theme-bg-color, #ffffff)",
     color: "var(--tg-theme-text-color, #000000)",
   };
@@ -393,7 +413,8 @@ export default function App() {
         <div style={topBarStyle}>Кабинет агента такси</div>
       )}
 
-      <UIErrorBoundary onUseSimpleUI={handleUseSimpleUI}>
+      <div style={screen === "home" ? { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" } : undefined}>
+        <UIErrorBoundary onUseSimpleUI={handleUseSimpleUI}>
         {screen === "manager" && (
           <>
             <div style={{ padding: 12 }}>
@@ -420,8 +441,8 @@ export default function App() {
               style={{
                 display: "flex",
                 flexDirection: "column",
-                height: "100dvh",
-                minHeight: "100vh",
+                height: "100%",
+                minHeight: 0,
                 overflow: "hidden",
                 background: "var(--tg-theme-bg-color, #fafafa)",
               }}
@@ -579,10 +600,12 @@ export default function App() {
               </button>
                 </div>
               </div>
+            </div>
           </>
         )}
 
-      </UIErrorBoundary>
+        </UIErrorBoundary>
+      </div>
 
       {screen === "initError" && initError && (
         <div

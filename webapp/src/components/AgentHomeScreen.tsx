@@ -864,12 +864,12 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           </div>
         )}
 
-        <div style={{ marginTop: 20, padding: "0 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
+        <header style={{ marginTop: 0, padding: "20px 16px 16px", display: "flex", alignItems: "center", gap: 12, background: secondaryBgColor, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
           <span
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
+              width: 44,
+              height: 44,
+              borderRadius: 12,
               background: "var(--tg-theme-button-color, #2481cc)",
               color: "#fff",
               display: "inline-flex",
@@ -879,13 +879,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             }}
             aria-hidden
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 17h14v-5H5v5zM5 9h14V7H5v2z" />
               <path d="M3 5h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
             </svg>
           </span>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: textColor }}>Агенты Такси</h1>
-        </div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: textColor, letterSpacing: "-0.02em" }}>Агенты Такси</h1>
+        </header>
 
         {welcomeMessage && (
           <div
