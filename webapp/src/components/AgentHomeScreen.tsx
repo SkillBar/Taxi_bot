@@ -182,6 +182,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
   /** Режим блока «Данные автомобиля»: false = просмотр (disabled из fullDriver.car), true = редактирование (text input). */
   const [carSectionEditMode, setCarSectionEditMode] = useState(false);
+  /** Показать блок проверки: что пришло в справочниках (марки, модели, цвета, условия работы, страны). */
+  const [showFleetListsDebug, setShowFleetListsDebug] = useState(false);
 
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
@@ -667,6 +669,26 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               </div>
             </Section>
           )}
+          <Section header="Справочники (проверка)">
+            <div style={{ padding: "12px 16px" }}>
+              <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setShowFleetListsDebug((v) => !v); }}>
+                {showFleetListsDebug ? "Скрыть что пришло" : "Показать что пришло в справочниках"}
+              </Button>
+              {showFleetListsDebug && (
+                <div style={{ marginTop: 12, fontSize: 12, color: hintColor, lineHeight: 1.5 }}>
+                  <p style={{ margin: "0 0 8px", color: textColor }}>Что пришло от getFleetList:</p>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    <li>Марки (car-brands): <strong>{fleetCarBrands.length}</strong> шт.{fleetCarBrands.length > 0 && ` — примеры: ${fleetCarBrands.slice(0, 3).map((b) => b.label).join(", ")}`}</li>
+                    <li>Модели (car-models, по марке): <strong>{fleetCarModels.length}</strong> шт.{fleetCarModels.length > 0 && ` — примеры: ${fleetCarModels.slice(0, 3).map((m) => m.label).join(", ")}`}</li>
+                    <li>Цвета (colors): <strong>{fleetColors.length}</strong> шт.{fleetColors.length > 0 && ` — примеры: ${fleetColors.slice(0, 5).map((c) => c.label).join(", ")}`}</li>
+                    <li>Условия работы (work-rules): <strong>{fleetWorkRules.length}</strong> шт.{fleetWorkRules.length > 0 && ` — примеры: ${fleetWorkRules.slice(0, 3).map((r) => r.label).join(", ")}`}</li>
+                    <li>Страны (countries): <strong>{fleetCountries.length}</strong> шт.{fleetCountries.length > 0 && ` — примеры: ${fleetCountries.slice(0, 3).map((c) => c.label).join(", ")}`}</li>
+                  </ul>
+                  {fleetModelsLoading && <p style={{ margin: "8px 0 0" }}>Модели: загрузка…</p>}
+                </div>
+              )}
+            </div>
+          </Section>
           <Section header="Данные водителя">
             <Input header="Имя" placeholder="Имя" value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: (e.target as HTMLInputElement).value }))} />
             <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Имя</p>
