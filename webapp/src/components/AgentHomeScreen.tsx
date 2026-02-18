@@ -781,73 +781,135 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Cell subtitle="Нет автомобиля" />
             ) : !fullDriver ? null : (
               <>
-                {/* Марка и модель — всегда селекторы на месте, как в тарифах */}
-                {fleetCarBrands.length > 0 ? (
-                  <Cell
-                    subtitle="Марка"
-                    after={
-                      <select
-                        value={driverForm.car_brand}
-                        onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}
-                        style={{
-                          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
-                          color: "var(--tg-theme-text-color)",
-                          border: "none",
-                          borderRadius: 12,
-                          padding: "8px 12px",
-                          fontSize: 14,
-                          outline: "none",
-                          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
-                          minWidth: 120,
-                        }}
-                      >
-                        <option value="">—</option>
-                        {fleetCarBrands.map((b) => (
-                          <option key={b.value} value={b.value}>{b.label}</option>
-                        ))}
-                      </select>
-                    }
-                  />
-                ) : (
-                  <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
-                )}
-                {fleetCarModels.length > 0 ? (
-                  <Cell
-                    subtitle="Модель"
-                    after={
-                      <select
-                        value={driverForm.car_model}
-                        onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))}
-                        disabled={!driverForm.car_brand}
-                        style={{
-                          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
-                          color: "var(--tg-theme-text-color)",
-                          border: "none",
-                          borderRadius: 12,
-                          padding: "8px 12px",
-                          fontSize: 14,
-                          outline: "none",
-                          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
-                          minWidth: 120,
-                        }}
-                      >
-                        <option value="">—</option>
-                        {fleetModelsLoading && <option disabled>Загрузка…</option>}
-                        {fleetCarModels.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
-                    }
-                  />
-                ) : (
-                  <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} disabled={!driverForm.car_brand} />
-                )}
                 {!carSectionEditMode ? (
+                  /* Режим просмотра: все поля только для чтения из fullDriver.car */
                   <>
-                    <Cell subtitle="Цвет" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.color ?? driverForm.car_color) || "—"}</span>} />
-                    <Cell subtitle="Год" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver.car?.year != null ? String(fullDriver.car.year) : (driverForm.car_year || "—")}</span>} />
-                    <Cell subtitle="Гос. номер" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.number ?? driverForm.car_number) || "—"}</span>} />
-                    <Cell subtitle="Номер СТС" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.registration_certificate_number ?? driverForm.car_registration_certificate_number) || "—"}</span>} />
+                    <Cell
+                      subtitle="Марка"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.brand ?? "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
+                    <Cell
+                      subtitle="Модель"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.model ?? "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
+                    <Cell
+                      subtitle="Цвет"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.color ?? "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
+                    <Cell
+                      subtitle="Год"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.year != null ? String(fullDriver.car.year) : "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
+                    <Cell
+                      subtitle="Гос. номер"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.number ?? "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
+                    <Cell
+                      subtitle="Номер СТС"
+                      after={
+                        <input
+                          readOnly
+                          disabled
+                          value={fullDriver.car?.registration_certificate_number ?? "Нет данных"}
+                          style={{
+                            background: "var(--tg-theme-secondary-bg-color, #e5e5e5)",
+                            color: "var(--tg-theme-hint-color, #666)",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 14,
+                            width: "100%",
+                            maxWidth: 200,
+                            cursor: "default",
+                          }}
+                        />
+                      }
+                    />
                     <div style={{ padding: "8px 16px 12px" }}>
                       <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(true); }}>
                         Редактировать
@@ -855,21 +917,127 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     </div>
                   </>
                 ) : (
+                  /* Режим редактирования: селекты при загруженных справочниках, иначе input */
                   <>
-                    {fleetColors.length > 0 ? (
-                      <Cell subtitle="Цвет" after={
-                        <select value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
-                          <option value="">—</option>
-                          {fleetColors.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                        </select>
-                      } />
+                    {fleetCarBrands.length > 0 ? (
+                      <Cell
+                        subtitle="Марка"
+                        after={
+                          <select
+                            value={driverForm.car_brand}
+                            onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}
+                            style={{
+                              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                              color: "var(--tg-theme-text-color)",
+                              border: "none",
+                              borderRadius: 12,
+                              padding: "8px 12px",
+                              fontSize: 14,
+                              outline: "none",
+                              boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                              minWidth: 120,
+                            }}
+                          >
+                            <option value="">—</option>
+                            {fleetCarBrands.map((b) => (
+                              <option key={b.value} value={b.value}>{b.label}</option>
+                            ))}
+                          </select>
+                        }
+                      />
                     ) : (
-                      <Input header="Цвет" placeholder="Серый" value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: (e.target as HTMLInputElement).value }))} />
+                      <>
+                        <Input
+                          header="Марка"
+                          placeholder="Введите вручную (например Toyota)"
+                          value={driverForm.car_brand}
+                          onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))}
+                        />
+                        {fleetListsError && <p style={{ margin: "2px 16px 8px", fontSize: 11, color: hintColor }}>Справочник не загрузился</p>}
+                      </>
                     )}
-                    <Input header="Год" placeholder="2020" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
+                    {fleetCarModels.length > 0 ? (
+                      <Cell
+                        subtitle="Модель"
+                        after={
+                          <select
+                            value={driverForm.car_model}
+                            onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))}
+                            disabled={!driverForm.car_brand}
+                            style={{
+                              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                              color: "var(--tg-theme-text-color)",
+                              border: "none",
+                              borderRadius: 12,
+                              padding: "8px 12px",
+                              fontSize: 14,
+                              outline: "none",
+                              boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                              minWidth: 120,
+                            }}
+                          >
+                            <option value="">—</option>
+                            {fleetModelsLoading && <option disabled>Загрузка…</option>}
+                            {fleetCarModels.map((m) => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                        }
+                      />
+                    ) : (
+                      <>
+                        <Input
+                          header="Модель"
+                          placeholder="Введите вручную (например Granta)"
+                          value={driverForm.car_model}
+                          onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))}
+                          disabled={!driverForm.car_brand}
+                        />
+                        {driverForm.car_brand && fleetModelsLoading && <p style={{ margin: "2px 16px 8px", fontSize: 11, color: hintColor }}>Загрузка…</p>}
+                        {driverForm.car_brand && !fleetModelsLoading && fleetCarModels.length === 0 && <p style={{ margin: "2px 16px 8px", fontSize: 11, color: hintColor }}>Справочник не загрузился</p>}
+                      </>
+                    )}
+                    {fleetColors.length > 0 ? (
+                      <Cell
+                        subtitle="Цвет"
+                        after={
+                          <select
+                            value={driverForm.car_color}
+                            onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))}
+                            style={{
+                              background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                              color: "var(--tg-theme-text-color)",
+                              border: "none",
+                              borderRadius: 12,
+                              padding: "8px 12px",
+                              fontSize: 14,
+                              outline: "none",
+                              boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                              minWidth: 120,
+                            }}
+                          >
+                            <option value="">—</option>
+                            {fleetColors.map((c) => (
+                              <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                          </select>
+                        }
+                      />
+                    ) : (
+                      <>
+                        <Input
+                          header="Цвет"
+                          placeholder="Введите вручную (например Белый)"
+                          value={driverForm.car_color}
+                          onChange={(e) => setDriverForm((f) => ({ ...f, car_color: (e.target as HTMLInputElement).value }))}
+                        />
+                        {fleetListsError && <p style={{ margin: "2px 16px 8px", fontSize: 11, color: hintColor }}>Справочник не загрузился</p>}
+                      </>
+                    )}
+                    <Input header="Год" placeholder="Введите вручную (например 2020)" type="number" value={driverForm.car_year} onChange={(e) => setDriverForm((f) => ({ ...f, car_year: (e.target as HTMLInputElement).value }))} />
                     {driverFormErrors.car_year && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.car_year}</p>}
-                    <Input header="Гос. номер" placeholder="А123БВ77" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
-                    <Input header="Номер СТС" placeholder="Номер СТС" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Гос. номер" placeholder="Введите вручную (например А123БВ77)" value={driverForm.car_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_number: (e.target as HTMLInputElement).value }))} />
+                    <Input header="Номер СТС" placeholder="Введите вручную (номер СТС)" value={driverForm.car_registration_certificate_number} onChange={(e) => setDriverForm((f) => ({ ...f, car_registration_certificate_number: (e.target as HTMLInputElement).value }))} />
                     <div style={{ padding: "8px 16px 12px", display: "flex", gap: 8, flexDirection: "column" }}>
                       <Button size="m" mode="outline" stretched onClick={() => { hapticImpact("light"); setCarSectionEditMode(false); }}>
                         Отмена
