@@ -180,11 +180,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driversMeta, setDriversMeta] = useState<{ source?: string; count?: number; limit?: number; offset?: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean } | null>(null);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const lastFetchDriversRef = useRef<number>(0);
-  const FLEET_DEBOUNCE_MS = 700;
+  const initialLoadDoneRef = useRef(false);
+  const FLEET_DEBOUNCE_MS = 300;
+  const INITIAL_DRIVERS_LIMIT = 15;
 
   const fetchDrivers = useCallback(async () => {
     const now = Date.now();
-    if (now - lastFetchDriversRef.current < FLEET_DEBOUNCE_MS) {
+    const isInitialLoad = !initialLoadDoneRef.current;
+    if (!isInitialLoad && now - lastFetchDriversRef.current < FLEET_DEBOUNCE_MS) {
       setDriversLoading(false);
       return;
     }
@@ -193,10 +196,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriversMeta(null);
     setDriversLoading(true);
     try {
-      const { drivers: list, meta } = await getDrivers({ limit: 30, offset: 0 });
+      const { drivers: list, meta } = await getDrivers({ limit: INITIAL_DRIVERS_LIMIT, offset: 0 });
       setDrivers(Array.isArray(list) ? (list as DriverWithOptionalFields[]) : []);
       setDriversMeta(meta ? { ...meta, hasMore: meta.hasMore } : null);
       if (meta?.credsInvalid) onCredsInvalid?.();
+      initialLoadDoneRef.current = true;
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { message?: string; code?: string } } };
       const status = err.response?.status;
@@ -704,7 +708,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 style={{ width: 20, height: 20, accentColor: "var(--tg-theme-button-color, #2481cc)", flexShrink: 0 }}
               />
               <label htmlFor="deaf-driver" style={{ fontSize: 14, color: textColor, cursor: "pointer", lineHeight: 1.4 }}>
-                Слабослышащий водитель (синхронизируется с данными в Яндекс Такси)
+                Слабослышащий водитель
               </label>
             </div>
           </Section>
@@ -832,7 +836,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
   const tabBarHeight = 56;
   const addDriverBlockHeight = 72;
-  const mainBottomPadding = tabBarHeight + addDriverBlockHeight + 8;
+  const mainBottomPadding = mainTabOnly ? 24 : tabBarHeight + addDriverBlockHeight + 8;
 
   return (
     <AppRoot>
@@ -841,7 +845,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           minHeight: "60vh",
           background: secondaryBgColor,
           color: textColor,
-          paddingBottom: `calc(${mainBottomPadding}px + env(safe-area-inset-bottom, 0px))`,
+          paddingBottom: mainTabOnly ? 24 : `calc(${mainBottomPadding}px + env(safe-area-inset-bottom, 0px))`,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -859,6 +863,29 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             {pullRefreshY > 80 ? "Отпустите для обновления" : "Потяните для обновления"}
           </div>
         )}
+
+        <div style={{ marginTop: 20, padding: "0 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
+          <span
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: "var(--tg-theme-button-color, #2481cc)",
+              color: "#fff",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+            aria-hidden
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 17h14v-5H5v5zM5 9h14V7H5v2z" />
+              <path d="M3 5h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+            </svg>
+          </span>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: textColor }}>Агенты Такси</h1>
+        </div>
 
         {welcomeMessage && (
           <div
@@ -912,7 +939,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         )}
 
         <List>
-          <Section header="Водители">
+          <Section>
             <div style={{ padding: "12px 16px 14px" }}>
               <input
                 type="text"
@@ -976,7 +1003,25 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 return (
                   <Cell
                     key={driver.id}
-                    before={<Avatar acronym={acronym} />}
+                    before={
+                      <span
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: "50%",
+                          background: "var(--tg-theme-button-color, #2481cc)",
+                          color: "#fff",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 18,
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {acronym.toUpperCase()}
+                      </span>
+                    }
                     description={
                       <span style={{ fontSize: 12, color: status.color, fontWeight: 500 }}>
                         {status.icon} {status.label}
@@ -984,7 +1029,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     }
                     after={
                       driver.balance != null ? (
-                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tg-theme-text-color)" }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tg-theme-text-color)", whiteSpace: "nowrap" }}>
                           {Math.round(driver.balance)} ₽
                         </span>
                       ) : undefined
@@ -1053,33 +1098,36 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
         </List>
 
-        {/* Кнопка «Добавить водителя» фиксирована над таб-баром */}
-        <div
-          style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            bottom: `calc(${tabBarHeight}px + env(safe-area-inset-bottom, 0px))`,
-            padding: "12px 16px",
-            background: bgColor,
-            borderTop: "1px solid rgba(0,0,0,0.06)",
-            zIndex: 99,
-          }}
-        >
-          <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }}>
-            Добавить водителя
-          </Button>
-          {!mainTabOnly && onOpenManager && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={onOpenManager}
-              style={{ width: "100%", marginTop: 8 }}
+        {!mainTabOnly && (
+          <>
+            <div
+              style={{
+                position: "fixed",
+                left: 0,
+                right: 0,
+                bottom: `calc(${tabBarHeight}px + env(safe-area-inset-bottom, 0px))`,
+                padding: "12px 16px",
+                background: bgColor,
+                borderTop: "1px solid rgba(0,0,0,0.06)",
+                zIndex: 99,
+              }}
             >
-              Кабинет менеджера
-            </button>
-          )}
-        </div>
+              <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }}>
+                Добавить водителя
+              </Button>
+              {onOpenManager && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={onOpenManager}
+                  style={{ width: "100%", marginTop: 8 }}
+                >
+                  Кабинет менеджера
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </main>
     </AppRoot>
   );

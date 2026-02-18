@@ -389,7 +389,9 @@ export default function App() {
 
   return (
     <div data-app-root style={wrapperStyle}>
-      <div style={topBarStyle}>Кабинет агента такси</div>
+      {!(screen === "home" && activeTab === "main") && (
+        <div style={topBarStyle}>Кабинет агента такси</div>
+      )}
 
       <UIErrorBoundary onUseSimpleUI={handleUseSimpleUI}>
         {screen === "manager" && (
@@ -414,61 +416,109 @@ export default function App() {
 
         {screen === "home" && (
           <>
-            <div style={{ paddingBottom: 56, background: "var(--tg-theme-bg-color, #fafafa)", minHeight: "100vh" }}>
-              {activeTab === "main" &&
-                (useSimpleUI ? (
-                  <SimpleHomeScreen
-                    user={me}
-                    onRegisterDriver={() => startRegistration("driver")}
-                    onRegisterCourier={() => startRegistration("courier")}
-                    onOpenManager={() => setScreen("manager")}
-                  />
-                ) : (
-                  <HomeErrorBoundary onBack={() => setScreen("init")}>
-                    <AgentHomeScreen
-                      mainTabOnly
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "100dvh",
+                minHeight: "100vh",
+                overflow: "hidden",
+                background: "var(--tg-theme-bg-color, #fafafa)",
+              }}
+            >
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: "auto",
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
+                {activeTab === "main" &&
+                  (useSimpleUI ? (
+                    <SimpleHomeScreen
+                      user={me}
                       onRegisterDriver={() => startRegistration("driver")}
                       onRegisterCourier={() => startRegistration("courier")}
                       onOpenManager={() => setScreen("manager")}
-                      onCredsInvalid={() => setScreen("onboarding")}
                     />
-                  </HomeErrorBoundary>
-                ))}
-              {activeTab === "cabinet" && (
-              <CabinetScreen
-                onSupport={() => {
-                  const link = (import.meta as { env?: { VITE_SUPPORT_LINK?: string } }).env?.VITE_SUPPORT_LINK || "https://t.me/";
-                  if (typeof window.Telegram?.WebApp?.openTelegramLink === "function") {
-                    window.Telegram.WebApp.openTelegramLink(link);
-                  } else if (typeof window.Telegram?.WebApp?.openLink === "function") {
-                    window.Telegram.WebApp.openLink(link);
-                  }
+                  ) : (
+                    <HomeErrorBoundary onBack={() => setScreen("init")}>
+                      <AgentHomeScreen
+                        mainTabOnly
+                        onRegisterDriver={() => startRegistration("driver")}
+                        onRegisterCourier={() => startRegistration("courier")}
+                        onOpenManager={() => setScreen("manager")}
+                        onCredsInvalid={() => setScreen("onboarding")}
+                      />
+                    </HomeErrorBoundary>
+                  ))}
+                {activeTab === "cabinet" && (
+                  <CabinetScreen
+                    onSupport={() => {
+                      const link = (import.meta as { env?: { VITE_SUPPORT_LINK?: string } }).env?.VITE_SUPPORT_LINK || "https://t.me/";
+                      if (typeof window.Telegram?.WebApp?.openTelegramLink === "function") {
+                        window.Telegram.WebApp.openTelegramLink(link);
+                      } else if (typeof window.Telegram?.WebApp?.openLink === "function") {
+                        window.Telegram.WebApp.openLink(link);
+                      }
+                    }}
+                    onLogout={() => {
+                      setLinked(false);
+                      if (typeof window.Telegram?.WebApp?.close === "function") {
+                        window.Telegram.WebApp.close();
+                      } else {
+                        setScreen("onboarding");
+                      }
+                    }}
+                  />
+                )}
+              </div>
+              <div
+                style={{
+                  flexShrink: 0,
+                  background: "var(--tg-theme-bg-color, #fff)",
+                  borderTop: isLightTheme ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)",
+                  paddingTop: 12,
+                  paddingLeft: 16,
+                  paddingRight: 16,
+                  paddingBottom: "env(safe-area-inset-bottom, 0px)",
                 }}
-                onLogout={() => {
-                  setLinked(false);
-                  if (typeof window.Telegram?.WebApp?.close === "function") {
-                    window.Telegram.WebApp.close();
-                  } else {
-                    setScreen("onboarding");
-                  }
-                }}
-              />
-            )}
-            </div>
-            <div
-              style={{
-                position: "fixed",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                display: "flex",
-                background: isLightTheme ? "#e5e5ea" : "#2a2a2e",
-                borderTop: isLightTheme ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.06)",
-                paddingBottom: "env(safe-area-inset-bottom, 0px)",
-                zIndex: 100,
-              }}
-              role="tablist"
-            >
+              >
+                {activeTab === "main" && !useSimpleUI && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      hapticImpact("light");
+                      startRegistration("driver");
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      fontSize: 16,
+                      fontWeight: 600,
+                      color: "#fff",
+                      background: "var(--tg-theme-button-color, #2481cc)",
+                      border: "none",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Добавить водителя
+                  </button>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    background: isLightTheme ? "#e5e5ea" : "#2a2a2e",
+                    borderTop: isLightTheme ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.06)",
+                    marginTop: 8,
+                    marginLeft: -16,
+                    marginRight: -16,
+                    paddingBottom: "env(safe-area-inset-bottom, 0px)",
+                  }}
+                  role="tablist"
+                >
               <button
                 type="button"
                 role="tab"
@@ -527,7 +577,8 @@ export default function App() {
                 </svg>
                 Кабинет
               </button>
-            </div>
+                </div>
+              </div>
           </>
         )}
 
