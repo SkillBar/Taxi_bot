@@ -584,12 +584,12 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     <Spinner size="s" style={{ marginTop: 4 }} />
                   ) : (
                     <p style={{ margin: "2px 0 0", fontSize: 16, fontWeight: 600, color: (driverCardProfile?.balance ?? 0) >= 0 ? "#22c55e" : destructiveColor }}>
-                      {(driverCardProfile?.balance ?? 0) >= 0 ? "" : "−"} {Math.abs(driverCardProfile?.balance ?? 0).toFixed(2)} ₽
+                      {(driverCardProfile?.balance ?? 0) >= 0 ? "" : "−"} {Math.round(Math.abs(driverCardProfile?.balance ?? 0))} ₽
                     </p>
                   )}
                   {!driverCardLoading && driverCardProfile?.blocked_balance != null && driverCardProfile.blocked_balance !== 0 && (
                     <p style={{ margin: "2px 0 0", fontSize: 13, color: hintColor }}>
-                      Заблокировано: {driverCardProfile.blocked_balance >= 0 ? "" : "−"} {Math.abs(driverCardProfile.blocked_balance).toFixed(2)} ₽
+                      Заблокировано: {driverCardProfile.blocked_balance >= 0 ? "" : "−"} {Math.round(Math.abs(driverCardProfile.blocked_balance))} ₽
                     </p>
                   )}
                 </div>
@@ -892,8 +892,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 return (
                   <Cell
                     key={driver.id}
-                    before={<Avatar acronym={driver.name?.[0] ?? "?"} />}
-                    description={driver.balance != null ? `${driver.balance} ₽` : undefined}
+                    before={
+                      driver.photo_url ? (
+                        <img src={driver.photo_url} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }} />
+                      ) : (
+                        <Avatar acronym={(driver.name?.trim() || driver.phone)?.[0] ?? "?"} />
+                      )
+                    }
+                    description={driver.balance != null ? `${Math.round(driver.balance)} ₽` : undefined}
                     after={
                       <span style={{ fontSize: 12, color: status.color, fontWeight: 500 }}>
                         {status.icon} {status.label}

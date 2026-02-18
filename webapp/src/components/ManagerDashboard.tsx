@@ -23,6 +23,7 @@ export interface Driver {
   workStatus?: string;
   limit?: number;
   car_id?: string | null;
+  photo_url?: string | null;
 }
 
 export function ManagerDashboard() {

@@ -27,7 +27,7 @@ type FleetDriversMeta = { source: "fleet"; count: number; limit?: number; offset
 /** In-memory кэш ответа Fleet drivers (TTL 15 с) для снижения нагрузки при частых запросах. */
 const fleetDriversCache = new Map<
   string,
-  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: FleetDriversMeta; expires: number }
+  { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null; photo_url?: string | null }>; meta: FleetDriversMeta; expires: number }
 >();
 function getFleetDriversCache(key: string): { drivers: unknown[]; meta: FleetDriversMeta } | null {
   const entry = fleetDriversCache.get(key);
@@ -35,7 +35,7 @@ function getFleetDriversCache(key: string): { drivers: unknown[]; meta: FleetDri
 }
 function setFleetDriversCache(
   key: string,
-  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>; meta: FleetDriversMeta },
+  payload: { drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null; photo_url?: string | null }>; meta: FleetDriversMeta },
   ttlMs: number
 ): void {
   fleetDriversCache.set(key, { ...payload, expires: Date.now() + ttlMs });
@@ -607,6 +607,7 @@ export async function managerRoutes(app: FastifyInstance) {
           workStatus: d.workStatus,
           current_status: d.current_status ?? undefined,
           car_id: d.car_id ?? null,
+          photo_url: d.photo_url ?? null,
         }));
         type Diag = { rawDriverProfilesLength?: number; driversWithoutName?: number };
         const rawCount = (parseDiagnostics ? (parseDiagnostics as Diag).rawDriverProfilesLength : undefined) ?? 0;

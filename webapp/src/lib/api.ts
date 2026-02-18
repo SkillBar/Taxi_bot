@@ -40,7 +40,7 @@ const DRIVERS_PAGE_SIZE = 30;
 
 /** Список водителей с пагинацией. limit по умолчанию 30, offset 0. meta.hasMore — есть ли следующая страница. */
 export async function getDrivers(opts?: { limit?: number; offset?: number }): Promise<{
-  drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null }>;
+  drivers: Array<{ id: string; yandexDriverId: string; phone: string; name: string | null; middle_name?: string | null; balance?: number; workStatus?: string; current_status?: string; car_id?: string | null; photo_url?: string | null }>;
   meta: { source?: string; count: number; limit: number; offset: number; hasMore?: boolean; hint?: string; rawCount?: number; credsInvalid?: boolean };
 }> {
   const limit = opts?.limit ?? DRIVERS_PAGE_SIZE;

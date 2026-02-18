@@ -74,6 +74,8 @@ export type YandexDriverProfile = {
   /** Текущий статус в приложении: online | offline | busy | driving. Приходит в ответе Fleet автоматически, в fields не запрашивать. */
   current_status?: string;
   car_id?: string | null;
+  /** URL фото из Fleet (driver_profile.photo), если запрошен в fields. */
+  photo_url?: string | null;
 };
 
 /** Данные автомобиля из Fleet (для карточки водителя). */
@@ -343,7 +345,7 @@ export async function listParkDrivers(
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
-      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones", "photo"],
       account: ["balance", "currency"],
       car: ["id"],
     },
@@ -420,7 +422,9 @@ export async function listParkDrivers(
     const current_status = (currentStatusStr != null && currentStatusStr !== "" ? currentStatusStr : "offline").toLowerCase();
     const car = (raw.car ?? (d as { car?: { id?: string } }).car) as { id?: string } | undefined;
     const car_id = car?.id != null ? String(car.id) : null;
-    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id });
+    const photoRaw = profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url;
+    const photo_url = photoRaw != null ? String(photoRaw) : null;
+    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id, photo_url: photo_url || null });
   }
 
   if (onParseDiagnostics) {
@@ -656,7 +660,7 @@ function driverProfileListBody(parkId: string, driverId: string) {
   return {
     query: { park: { id: parkId }, driver_profile: { id: [driverId] } },
     fields: {
-      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones", "photo"],
       account: ["balance", "currency"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_cert"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
