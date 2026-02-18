@@ -11,7 +11,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDriverWorkRules, getDrivers, updateDriver, type FleetListOption, type FullDriver, type DriverWorkRule } from "../lib/api";
+import { api, getManagerMe, getYandexOAuthAuthorizeUrl, getFleetList, getDriver, getDriverBalance, getDrivers, updateDriver, type FleetListOption, type FullDriver } from "../lib/api";
 import { hapticImpact } from "../lib/haptic";
 import { getAgentsMe, type AgentsMe } from "../api";
 import { STAGES, ENDPOINTS, formatStageError, buildErrorMessage } from "../lib/stages";
@@ -117,9 +117,11 @@ export interface AgentHomeScreenProps {
   onOpenManager?: () => void;
   mainTabOnly?: boolean;
   onCredsInvalid?: () => void;
+  /** Вызывается при открытии/закрытии карточки водителя (для скрытия кнопки «Добавить водителя» на первом экране). */
+  onCardOpenChange?: (isOpen: boolean) => void;
 }
 
-export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly, onCredsInvalid }: AgentHomeScreenProps) {
+export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenManager, mainTabOnly, onCredsInvalid, onCardOpenChange }: AgentHomeScreenProps) {
   const [user, setUser] = useState<AgentsMe | null>(null);
   const [drivers, setDrivers] = useState<DriverWithOptionalFields[]>([]);
   const [driversLoading, setDriversLoading] = useState(true);
@@ -178,7 +180,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   const [driverCardLoading, setDriverCardLoading] = useState(false);
   const [fullDriver, setFullDriver] = useState<FullDriver | null>(null);
   const [driverCardProfile, setDriverCardProfile] = useState<{ balance?: number; blocked_balance?: number; photo_url?: string | null; comment?: string | null } | null>(null);
-  const [driverWorkRules, setDriverWorkRules] = useState<DriverWorkRule[]>([]);
   /** Режим блока «Данные автомобиля»: false = просмотр (disabled из fullDriver.car), true = редактирование (text input). */
   const [carSectionEditMode, setCarSectionEditMode] = useState(false);
 
@@ -282,7 +283,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setFullDriver(null);
     setDriverCardProfile(null);
     setCarSectionEditMode(false);
-    setDriverWorkRules([]);
     setFleetWorkRules([]);
     setWorkRulesLoadFailed(false);
     setDriverSaveError(null);
@@ -357,9 +357,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
         balance: balance?.balance,
         blocked_balance: balance?.blocked_balance,
       }));
-    });
-    getDriverWorkRules().then((rules) => {
-      setDriverWorkRules(Array.isArray(rules) ? rules : []);
     });
   }, [selectedDriver?.id]);
 
@@ -555,6 +552,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
       };
     }
   }, [selectedDriver]);
+
+  useEffect(() => {
+    onCardOpenChange?.(!!selectedDriver);
+  }, [selectedDriver, onCardOpenChange]);
 
   const handleYandexOAuth = async () => {
     setYandexOAuthError(null);
@@ -766,33 +767,11 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             )}
           </Section>
 
-          {driverWorkRules.length > 0 && fullDriver?.work_rule_id && (
-            <Section header="Выбранные водителем категории (тарифы)">
-              {driverWorkRules
-                .filter((r) => r.id === fullDriver.work_rule_id)
-                .map((rule) => (
-                  <Cell key={rule.id} subtitle={rule.is_enabled ? "Активно" : "Отключено"}>
-                    {rule.name}
-                  </Cell>
-                ))}
-            </Section>
-          )}
-
           {driverCardProfile?.comment && (
             <Section header="Комментарий">
               <div style={{ padding: "12px 16px", fontSize: 14, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                 {driverCardProfile.comment}
               </div>
-            </Section>
-          )}
-
-          {driverWorkRules.length > 0 && (
-            <Section header="Условия работы">
-              {driverWorkRules.map((rule) => (
-                <Cell key={rule.id} subtitle={rule.is_enabled ? "Активно" : "Отключено"}>
-                  {rule.name}
-                </Cell>
-              ))}
             </Section>
           )}
 
@@ -803,10 +782,69 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               <Cell subtitle="Нет автомобиля" />
             ) : !fullDriver ? null : (
               <>
+                {/* Марка и модель — всегда селекторы на месте, как в тарифах */}
+                {fleetCarBrands.length > 0 ? (
+                  <Cell
+                    subtitle="Марка"
+                    after={
+                      <select
+                        value={driverForm.car_brand}
+                        onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))}
+                        style={{
+                          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                          color: "var(--tg-theme-text-color)",
+                          border: "none",
+                          borderRadius: 12,
+                          padding: "8px 12px",
+                          fontSize: 14,
+                          outline: "none",
+                          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                          minWidth: 120,
+                        }}
+                      >
+                        <option value="">—</option>
+                        {fleetCarBrands.map((b) => (
+                          <option key={b.value} value={b.value}>{b.label}</option>
+                        ))}
+                      </select>
+                    }
+                  />
+                ) : (
+                  <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
+                )}
+                {fleetCarModels.length > 0 ? (
+                  <Cell
+                    subtitle="Модель"
+                    after={
+                      <select
+                        value={driverForm.car_model}
+                        onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))}
+                        disabled={!driverForm.car_brand}
+                        style={{
+                          background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                          color: "var(--tg-theme-text-color)",
+                          border: "none",
+                          borderRadius: 12,
+                          padding: "8px 12px",
+                          fontSize: 14,
+                          outline: "none",
+                          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                          minWidth: 120,
+                        }}
+                      >
+                        <option value="">—</option>
+                        {fleetModelsLoading && <option disabled>Загрузка…</option>}
+                        {fleetCarModels.map((m) => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    }
+                  />
+                ) : (
+                  <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} disabled={!driverForm.car_brand} />
+                )}
                 {!carSectionEditMode ? (
                   <>
-                    <Cell subtitle="Марка" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.brand ?? driverForm.car_brand) || "—"}</span>} />
-                    <Cell subtitle="Модель" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.model ?? driverForm.car_model) || "—"}</span>} />
                     <Cell subtitle="Цвет" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.color ?? driverForm.car_color) || "—"}</span>} />
                     <Cell subtitle="Год" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{fullDriver.car?.year != null ? String(fullDriver.car.year) : (driverForm.car_year || "—")}</span>} />
                     <Cell subtitle="Гос. номер" after={<span style={{ fontSize: 14, color: "var(--tg-theme-text-color)" }}>{(fullDriver.car?.number ?? driverForm.car_number) || "—"}</span>} />
@@ -819,26 +857,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                   </>
                 ) : (
                   <>
-                    {fleetCarBrands.length > 0 ? (
-                      <Cell subtitle="Марка" after={
-                        <select value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: e.target.value, car_model: "" }))} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
-                          <option value="">—</option>
-                          {fleetCarBrands.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-                        </select>
-                      } />
-                    ) : (
-                      <Input header="Марка" placeholder="LADA (ВАЗ)" value={driverForm.car_brand} onChange={(e) => setDriverForm((f) => ({ ...f, car_brand: (e.target as HTMLInputElement).value }))} />
-                    )}
-                    {fleetCarModels.length > 0 ? (
-                      <Cell subtitle="Модель" after={
-                        <select value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: e.target.value }))} disabled={!driverForm.car_brand} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>
-                          <option value="">—</option>
-                          {fleetCarModels.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                        </select>
-                      } />
-                    ) : (
-                      <Input header="Модель" placeholder="Granta" value={driverForm.car_model} onChange={(e) => setDriverForm((f) => ({ ...f, car_model: (e.target as HTMLInputElement).value }))} />
-                    )}
                     {fleetColors.length > 0 ? (
                       <Cell subtitle="Цвет" after={
                         <select value={driverForm.car_color} onChange={(e) => setDriverForm((f) => ({ ...f, car_color: e.target.value }))} style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "1px solid var(--tg-theme-hint-color)", borderRadius: 6, padding: "6px 8px", fontSize: 14, minWidth: 120 }}>

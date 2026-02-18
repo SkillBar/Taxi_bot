@@ -113,6 +113,7 @@ export default function App() {
   const [initRetrying, setInitRetrying] = useState(false);
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"main" | "cabinet">("main");
+  const [isDriverCardOpen, setIsDriverCardOpen] = useState(false);
   const [isLightTheme, setIsLightTheme] = useState(false);
 
   useEffect(() => {
@@ -453,6 +454,7 @@ export default function App() {
                   minHeight: 0,
                   overflowY: "auto",
                   WebkitOverflowScrolling: "touch",
+                  paddingBottom: "calc(180px + env(safe-area-inset-bottom, 0px))",
                 }}
               >
                 {activeTab === "main" &&
@@ -471,6 +473,7 @@ export default function App() {
                         onRegisterCourier={() => startRegistration("courier")}
                         onOpenManager={() => setScreen("manager")}
                         onCredsInvalid={() => setScreen("onboarding")}
+                        onCardOpenChange={setIsDriverCardOpen}
                       />
                     </HomeErrorBoundary>
                   ))}
@@ -497,16 +500,20 @@ export default function App() {
               </div>
               <div
                 style={{
-                  flexShrink: 0,
+                  position: "fixed",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))",
                   background: "var(--tg-theme-bg-color, #fff)",
                   borderTop: isLightTheme ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)",
                   paddingTop: 12,
                   paddingLeft: 16,
                   paddingRight: 16,
-                  paddingBottom: "env(safe-area-inset-bottom, 0px)",
+                  zIndex: 100,
                 }}
               >
-                {activeTab === "main" && !useSimpleUI && (
+                {activeTab === "main" && !useSimpleUI && !isDriverCardOpen && (
                   <button
                     type="button"
                     onClick={() => {
