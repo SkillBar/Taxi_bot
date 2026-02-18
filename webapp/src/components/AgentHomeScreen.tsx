@@ -753,6 +753,10 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     );
   }
 
+  const tabBarHeight = 56;
+  const addDriverBlockHeight = 72;
+  const mainBottomPadding = tabBarHeight + addDriverBlockHeight + 8;
+
   return (
     <AppRoot>
       <main
@@ -760,7 +764,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           minHeight: "60vh",
           background: secondaryBgColor,
           color: textColor,
-          paddingBottom: 88,
+          paddingBottom: `calc(${mainBottomPadding}px + env(safe-area-inset-bottom, 0px))`,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -832,7 +836,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
         <List>
           <Section header="Водители">
-            <div style={{ padding: "0 16px 12px" }}>
+            <div style={{ padding: "12px 16px 14px" }}>
               <input
                 type="text"
                 placeholder="Поиск по имени водителя"
@@ -841,11 +845,13 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
-                  padding: "10px 12px",
+                  padding: "10px 14px",
                   fontSize: 15,
-                  border: `1px solid ${hintColor}`,
-                  borderRadius: 8,
-                  background: bgColor,
+                  border: "none",
+                  outline: "none",
+                  borderRadius: 12,
+                  background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                  boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
                   color: textColor,
                 }}
               />
@@ -969,17 +975,17 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
 
         </List>
 
-        {/* Кнопка «Добавить водителя» фиксирована внизу над таб-баром */}
+        {/* Кнопка «Добавить водителя» фиксирована над таб-баром */}
         <div
           style={{
             position: "fixed",
-            bottom: 0,
             left: 0,
             right: 0,
+            bottom: `calc(${tabBarHeight}px + env(safe-area-inset-bottom, 0px))`,
             padding: "12px 16px",
-            paddingBottom: "max(12px, env(safe-area-inset-bottom))",
             background: bgColor,
-            borderTop: `1px solid ${hintColor}`,
+            borderTop: "1px solid rgba(0,0,0,0.06)",
+            zIndex: 99,
           }}
         >
           <Button size="l" stretched onClick={() => { hapticImpact("light"); onRegisterDriver(); }}>

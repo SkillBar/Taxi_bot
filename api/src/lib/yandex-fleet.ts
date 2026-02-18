@@ -345,7 +345,7 @@ export async function listParkDrivers(
   const body = {
     query: { park: { id: creds.parkId } },
     fields: {
-      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones", "photo"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
       car: ["id"],
     },
@@ -660,7 +660,7 @@ function driverProfileListBody(parkId: string, driverId: string) {
   return {
     query: { park: { id: parkId }, driver_profile: { id: [driverId] } },
     fields: {
-      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones", "photo"],
+      driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
       account: ["balance", "currency"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_cert"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
