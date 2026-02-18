@@ -50,9 +50,16 @@ class HomeErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
+      const err = this.state.error;
+      const message = err?.message ?? "Неизвестная ошибка";
+      const stack = err?.stack ? String(err.stack).slice(0, 800) : "";
       return (
         <div style={{ padding: 20, minHeight: "100vh", background: "#f5f5f5" }}>
           <p style={{ color: "#000", marginBottom: 12 }}>Произошла ошибка при загрузке.</p>
+          <div style={{ marginBottom: 16, padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #ddd", maxHeight: 240, overflow: "auto" }}>
+            <p style={{ color: "#c00", fontSize: 13, margin: "0 0 8px", wordBreak: "break-word" }}>{message}</p>
+            {stack && <pre style={{ margin: 0, fontSize: 11, color: "#333", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{stack}</pre>}
+          </div>
           <button type="button" className="secondary" onClick={this.props.onBack}>
             На главную
           </button>
