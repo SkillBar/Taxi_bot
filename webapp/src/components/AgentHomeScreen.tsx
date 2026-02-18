@@ -68,6 +68,18 @@ function displayName(me: AgentsMe | null): string {
   return [first, last].filter(Boolean).join(" ") || "Пользователь";
 }
 
+/** Маппинг кода страны выдачи ВУ (Fleet: rus, RUS и т.д.) в название для отображения. */
+const COUNTRY_CODE_TO_LABEL: Record<string, string> = {
+  rus: "Россия", blr: "Беларусь", kaz: "Казахстан", uzb: "Узбекистан", ukr: "Украина",
+  arm: "Армения", aze: "Азербайджан", geo: "Грузия", kgz: "Киргизия", tjk: "Таджикистан", tkm: "Туркменистан",
+  lva: "Латвия", ltu: "Литва", est: "Эстония", mda: "Молдова", usa: "США", deu: "Германия", fra: "Франция",
+};
+function getCountryLabel(code: string | undefined): string {
+  if (!code || typeof code !== "string") return "";
+  const key = code.trim().toLowerCase().slice(0, 3);
+  return COUNTRY_CODE_TO_LABEL[key] ?? code;
+}
+
 /** Имя пользователя: сначала из Telegram.WebApp.initDataUnsafe.user, иначе из API (AgentsMe). */
 function displayNameFromTelegramOrApi(telegramUser: { first_name?: string; last_name?: string } | null, apiUser: AgentsMe | null): string {
   if (telegramUser) {
@@ -134,6 +146,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     driver_license_country: string;
     driver_license_issue_date: string;
     driver_license_expiration_date: string;
+    deaf_driver: boolean;
     car_brand: string;
     car_model: string;
     car_color: string;
@@ -144,6 +157,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
   }>({
     first_name: "", last_name: "", middle_name: "", phone: "",
     driver_experience: "", driver_license_series_number: "", driver_license_country: "", driver_license_issue_date: "", driver_license_expiration_date: "",
+    deaf_driver: false,
     car_brand: "", car_model: "", car_color: "", car_year: "", car_number: "", car_registration_certificate_number: "", car_id: undefined,
   });
   const [fleetCountries, setFleetCountries] = useState<FleetListOption[]>([]);
@@ -289,6 +303,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           driver_license_issue_date: full.driver_license?.issue_date?.slice(0, 10) ?? prev.driver_license_issue_date,
           driver_license_expiration_date: full.driver_license?.expiration_date?.slice(0, 10) ?? prev.driver_license_expiration_date,
           driver_experience: full.driver_experience != null ? String(full.driver_experience) : prev.driver_experience,
+          deaf_driver: (full as FullDriver & { deaf_driver?: boolean }).deaf_driver ?? prev.deaf_driver,
           car_id: full.car_id ?? full.car?.id ?? prev.car_id,
           car_brand: full.car?.brand ?? prev.car_brand,
           car_model: full.car?.model ?? prev.car_model,
@@ -471,25 +486,50 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     return list;
   }, [activeDrivers, searchQuery]);
 
-  /** Telegram WebApp BackButton: show() при открытой карточке, onClick → закрыть модалку (навигация назад). */
+  /** Нативная кнопка «Назад» Telegram: показываем в карточке водителя, по нажатию — возврат к списку. */
   useEffect(() => {
+    const goBack = () => {
+      hapticImpact("light");
+      setSelectedDriver(null);
+    };
+    const nativeBack = typeof window !== "undefined" ? window.Telegram?.WebApp?.BackButton : undefined;
+
     if (!selectedDriver) {
       try {
         if (backButton?.hide?.isAvailable?.()) backButton.hide();
       } catch {
         /**/
       }
+      try {
+        nativeBack?.hide?.();
+      } catch {
+        /**/
+      }
       return;
     }
     try {
+      if (nativeBack) {
+        nativeBack.show?.();
+        nativeBack.onClick?.(goBack);
+        return () => {
+          try {
+            (nativeBack as { offClick?: (cb: () => void) => void }).offClick?.(goBack);
+          } catch {
+            /**/
+          }
+          nativeBack.hide?.();
+        };
+      }
       if (backButton?.show?.isAvailable?.()) backButton.show();
-      const off = backButton?.onClick?.isAvailable?.() ? backButton.onClick(() => { hapticImpact("light"); setSelectedDriver(null); }) : () => {};
+      const off = backButton?.onClick?.isAvailable?.() ? backButton.onClick(goBack) : () => {};
       return () => {
         if (typeof off === "function") off();
         if (backButton?.hide?.isAvailable?.()) backButton.hide();
       };
     } catch {
-      return () => {};
+      return () => {
+        nativeBack?.hide?.();
+      };
     }
   }, [selectedDriver]);
 
@@ -606,15 +646,15 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           )}
           <Section header="Данные водителя">
             <Input header="Имя" placeholder="Имя" value={driverForm.first_name} onChange={(e) => setDriverForm((f) => ({ ...f, first_name: (e.target as HTMLInputElement).value }))} />
-            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Имя водителя в системе Fleet</p>
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Имя</p>
             {driverFormErrors.first_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.first_name}</p>}
             <Input header="Фамилия" placeholder="Фамилия" value={driverForm.last_name} onChange={(e) => setDriverForm((f) => ({ ...f, last_name: (e.target as HTMLInputElement).value }))} />
-            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Фамилия водителя в системе Fleet</p>
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Фамилия</p>
             {driverFormErrors.last_name && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.last_name}</p>}
             <Input header="Отчество" placeholder="Отчество" value={driverForm.middle_name} onChange={(e) => setDriverForm((f) => ({ ...f, middle_name: (e.target as HTMLInputElement).value }))} />
             <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Отчество (при наличии)</p>
             <Input header="Номер телефона" placeholder="+7 999 123-45-67" type="tel" value={driverForm.phone} onChange={(e) => setDriverForm((f) => ({ ...f, phone: (e.target as HTMLInputElement).value }))} />
-            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Контактный номер для связи и входа в приложение водителя</p>
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Контактный номер</p>
             {driverFormErrors.phone && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.phone}</p>}
             <Input header="Водительский стаж (лет, мин. 3)" placeholder="3" type="number" value={driverForm.driver_experience} onChange={(e) => setDriverForm((f) => ({ ...f, driver_experience: (e.target as HTMLInputElement).value }))} />
             <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Сколько лет с момента получения прав (не менее 3)</p>
@@ -627,22 +667,59 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 <select
                   value={driverForm.driver_license_country}
                   onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_country: e.target.value }))}
-                  style={{ background: "var(--tg-theme-bg-color)", color: "var(--tg-theme-text-color)", border: "none", fontSize: 14 }}
+                  style={{
+                    background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                    color: "var(--tg-theme-text-color)",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "8px 12px",
+                    fontSize: 14,
+                    outline: "none",
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                  }}
                 >
                   <option value="">—</option>
                   {fleetListsLoading && <option disabled>Загрузка...</option>}
                   {!fleetListsLoading && fleetCountries.length === 0 && <option disabled>Нет данных</option>}
-                  {fleetCountries.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {fleetCountries.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {getCountryLabel(c.value) || c.label}
+                    </option>
+                  ))}
                 </select>
               }
             />
-            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Трёхбуквенный код страны выдачи (например RUS)</p>
+            <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Страна выдачи ВУ</p>
             <Input header="Дата выдачи ВУ" type="date" value={driverForm.driver_license_issue_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_issue_date: (e.target as HTMLInputElement).value }))} />
             <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Дата выдачи водительского удостоверения</p>
             <Input header="Действует до" type="date" value={driverForm.driver_license_expiration_date} onChange={(e) => setDriverForm((f) => ({ ...f, driver_license_expiration_date: (e.target as HTMLInputElement).value }))} />
             <p style={{ margin: "4px 16px 8px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Дата окончания действия водительского удостоверения</p>
             {driverFormErrors.driver_license_expiration_date && <p style={{ margin: "4px 16px 0", fontSize: 12, color: destructiveColor }}>{driverFormErrors.driver_license_expiration_date}</p>}
+            <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+              <input
+                type="checkbox"
+                id="deaf-driver"
+                checked={driverForm.deaf_driver}
+                onChange={(e) => setDriverForm((f) => ({ ...f, deaf_driver: (e.target as HTMLInputElement).checked }))}
+                style={{ width: 20, height: 20, accentColor: "var(--tg-theme-button-color, #2481cc)", flexShrink: 0 }}
+              />
+              <label htmlFor="deaf-driver" style={{ fontSize: 14, color: textColor, cursor: "pointer", lineHeight: 1.4 }}>
+                Слабослышащий водитель (синхронизируется с данными в Яндекс Такси)
+              </label>
+            </div>
           </Section>
+
+          {driverWorkRules.length > 0 && fullDriver?.work_rule_id && (
+            <Section header="Выбранные водителем категории (тарифы)">
+              {driverWorkRules
+                .filter((r) => r.id === fullDriver.work_rule_id)
+                .map((rule) => (
+                  <Cell key={rule.id} subtitle={rule.is_enabled ? "Активно" : "Отключено"}>
+                    {rule.name}
+                  </Cell>
+                ))}
+            </Section>
+          )}
 
           {driverCardProfile?.comment && (
             <Section header="Комментарий">
@@ -895,21 +972,22 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             ) : (
               filteredAndSortedDrivers.map((driver) => {
                 const status = driverDisplayStatus(driver);
+                const acronym = (driver.name?.trim() || driver.phone)?.[0] ?? "?";
                 return (
                   <Cell
                     key={driver.id}
-                    before={
-                      driver.photo_url ? (
-                        <img src={driver.photo_url} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }} />
-                      ) : (
-                        <Avatar acronym={(driver.name?.trim() || driver.phone)?.[0] ?? "?"} />
-                      )
-                    }
-                    description={driver.balance != null ? `${Math.round(driver.balance)} ₽` : undefined}
-                    after={
+                    before={<Avatar acronym={acronym} />}
+                    description={
                       <span style={{ fontSize: 12, color: status.color, fontWeight: 500 }}>
                         {status.icon} {status.label}
                       </span>
+                    }
+                    after={
+                      driver.balance != null ? (
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tg-theme-text-color)" }}>
+                          {Math.round(driver.balance)} ₽
+                        </span>
+                      ) : undefined
                     }
                     onClick={() => { hapticImpact("light"); setSelectedDriver(driver); }}
                   >
