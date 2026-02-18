@@ -147,6 +147,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     driver_license_issue_date: string;
     driver_license_expiration_date: string;
     deaf_driver: boolean;
+    work_rule_id: string;
     car_brand: string;
     car_model: string;
     car_color: string;
@@ -158,12 +159,16 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     first_name: "", last_name: "", middle_name: "", phone: "",
     driver_experience: "", driver_license_series_number: "", driver_license_country: "", driver_license_issue_date: "", driver_license_expiration_date: "",
     deaf_driver: false,
+    work_rule_id: "",
     car_brand: "", car_model: "", car_color: "", car_year: "", car_number: "", car_registration_certificate_number: "", car_id: undefined,
   });
   const [fleetCountries, setFleetCountries] = useState<FleetListOption[]>([]);
   const [fleetCarBrands, setFleetCarBrands] = useState<FleetListOption[]>([]);
   const [fleetCarModels, setFleetCarModels] = useState<FleetListOption[]>([]);
   const [fleetColors, setFleetColors] = useState<FleetListOption[]>([]);
+  const [fleetWorkRules, setFleetWorkRules] = useState<FleetListOption[]>([]);
+  /** true, если GET fleet-lists/work-rules вернул 404 — показываем ручной ввод ID. */
+  const [workRulesLoadFailed, setWorkRulesLoadFailed] = useState(false);
   const [fleetListsLoading, setFleetListsLoading] = useState(false);
   const [fleetModelsLoading, setFleetModelsLoading] = useState(false);
   const [fleetListsError, setFleetListsError] = useState<string | null>(null);
@@ -278,11 +283,23 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     setDriverCardProfile(null);
     setCarSectionEditMode(false);
     setDriverWorkRules([]);
+    setFleetWorkRules([]);
+    setWorkRulesLoadFailed(false);
     setDriverSaveError(null);
     setDriverFormErrors({});
     setDriverCardLoading(true);
     setFleetListsError(null);
     setDriverCardProfile(null);
+    // Справочник условий работы — отдельно, при 404 не ломаем открытие карточки
+    getFleetList("work-rules")
+      .then((list) => {
+        setFleetWorkRules(Array.isArray(list) ? list : []);
+        setWorkRulesLoadFailed(false);
+      })
+      .catch((e: { response?: { status?: number } }) => {
+        setFleetWorkRules([]);
+        setWorkRulesLoadFailed(e?.response?.status === 404);
+      });
     // Один параллельный запрос: водитель + справочники — карточка и селекты заполняются сразу
     Promise.all([
       getDriver(selectedDriver.id),
@@ -308,6 +325,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
           driver_license_expiration_date: full.driver_license?.expiration_date?.slice(0, 10) ?? prev.driver_license_expiration_date,
           driver_experience: full.driver_experience != null ? String(full.driver_experience) : prev.driver_experience,
           deaf_driver: (full as FullDriver & { deaf_driver?: boolean }).deaf_driver ?? prev.deaf_driver,
+          work_rule_id: full.work_rule_id ?? prev.work_rule_id ?? "",
           car_id: full.car_id ?? full.car?.id ?? prev.car_id,
           car_brand: full.car?.brand ?? prev.car_brand,
           car_model: full.car?.model ?? prev.car_model,
@@ -429,6 +447,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
             issue_date: driverForm.driver_license_issue_date || undefined,
             expiration_date: driverForm.driver_license_expiration_date || undefined,
           },
+          work_rule_id: driverForm.work_rule_id?.trim() || undefined,
         },
         ...(driverForm.car_id && (driverForm.car_brand || driverForm.car_model || driverForm.car_color || driverForm.car_number || driverForm.car_registration_certificate_number) && {
           car_id: driverForm.car_id,
@@ -711,6 +730,40 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 Слабослышащий водитель
               </label>
             </div>
+            <p style={{ margin: "8px 16px 4px", fontSize: 12, color: hintColor, lineHeight: 1.35 }}>Условия работы</p>
+            {workRulesLoadFailed || fleetWorkRules.length === 0 ? (
+              <Input
+                header="Условия работы"
+                placeholder="Введите ID условия"
+                value={driverForm.work_rule_id}
+                onChange={(e) => setDriverForm((f) => ({ ...f, work_rule_id: (e.target as HTMLInputElement).value }))}
+              />
+            ) : (
+              <Cell
+                subtitle="Условия работы"
+                after={
+                  <select
+                    value={driverForm.work_rule_id}
+                    onChange={(e) => setDriverForm((f) => ({ ...f, work_rule_id: e.target.value }))}
+                    style={{
+                      background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+                      color: "var(--tg-theme-text-color)",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "8px 12px",
+                      fontSize: 14,
+                      outline: "none",
+                      boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                    }}
+                  >
+                    <option value="">—</option>
+                    {fleetWorkRules.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+                }
+              />
+            )}
           </Section>
 
           {driverWorkRules.length > 0 && fullDriver?.work_rule_id && (
@@ -961,7 +1014,7 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
               />
             </div>
 
-            {driversLoading ? (
+            {driversLoading && drivers.length === 0 ? (
               <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
                 <Spinner size="l" />
               </div>
@@ -997,7 +1050,14 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                 )}
               </>
             ) : (
-              filteredAndSortedDrivers.map((driver) => {
+              <>
+                {driversLoading && drivers.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "8px 16px", fontSize: 13, color: hintColor }}>
+                    <Spinner size="s" />
+                    <span>Обновление…</span>
+                  </div>
+                )}
+                {filteredAndSortedDrivers.map((driver) => {
                 const status = driverDisplayStatus(driver);
                 const acronym = (driver.name?.trim() || driver.phone)?.[0] ?? "?";
                 return (
@@ -1039,7 +1099,8 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
                     {driver.name ?? "Без имени"}
                   </Cell>
                 );
-              })
+              })}
+              </>
             )}
           </Section>
 

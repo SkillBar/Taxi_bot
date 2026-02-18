@@ -95,7 +95,7 @@ export async function getYandexOAuthAuthorizeUrl(): Promise<{ url: string }> {
   return res.data;
 }
 
-export type FleetListType = "countries" | "car-brands" | "car-models" | "colors";
+export type FleetListType = "countries" | "car-brands" | "car-models" | "colors" | "work-rules";
 
 export type FleetListItem = { id: string; name?: string; code?: string; title?: string; [key: string]: unknown };
 

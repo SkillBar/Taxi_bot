@@ -76,6 +76,8 @@ export type YandexDriverProfile = {
   car_id?: string | null;
   /** URL фото из Fleet (driver_profile.photo), если запрошен в fields. */
   photo_url?: string | null;
+  /** Идентификатор условия работы (из account.work_rule_id). */
+  work_rule_id?: string | null;
 };
 
 /** Данные автомобиля из Fleet (для карточки водителя). */
@@ -346,7 +348,7 @@ export async function listParkDrivers(
     query: { park: { id: creds.parkId } },
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
-      account: ["balance", "currency"],
+      account: ["balance", "currency", "work_rule_id"],
       car: ["id"],
     },
     limit,
@@ -424,7 +426,9 @@ export async function listParkDrivers(
     const car_id = car?.id != null ? String(car.id) : null;
     const photoRaw = profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url;
     const photo_url = photoRaw != null ? String(photoRaw) : null;
-    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id, photo_url: photo_url || null });
+    const acc = accountsList[0] as { work_rule_id?: string } | undefined;
+    const work_rule_id = acc?.work_rule_id != null ? String(acc.work_rule_id) : (raw.work_rule_id != null ? String(raw.work_rule_id) : null);
+    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id, photo_url: photo_url || null, work_rule_id: work_rule_id ?? null });
   }
 
   if (onParseDiagnostics) {
@@ -509,6 +513,8 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const carsArray = (raw.cars ?? (d as { cars?: unknown[] }).cars) as Record<string, unknown>[] | undefined;
   const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car ?? carsArray?.[0]) as Record<string, unknown> | undefined;
   const car_id = carRaw?.id != null ? String(carRaw.id) : null;
+  const acc = accountsList[0] as { work_rule_id?: string } | undefined;
+  const work_rule_id = acc?.work_rule_id != null ? String(acc.work_rule_id) : (raw.work_rule_id != null ? String(raw.work_rule_id) : null);
   const hasCarData =
     carRaw &&
     (carRaw.id != null ||
@@ -551,6 +557,7 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
     comment: comment ?? null,
     photo_url: photo_url || null,
     car: car ?? null,
+    work_rule_id: work_rule_id ?? null,
   };
 }
 
@@ -661,7 +668,7 @@ function driverProfileListBody(parkId: string, driverId: string) {
     query: { park: { id: parkId }, driver_profile: { id: [driverId] } },
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
-      account: ["balance", "currency"],
+      account: ["balance", "currency", "work_rule_id"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_cert"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
@@ -981,6 +988,7 @@ export type DriverProfileUpdatePayload = {
   phones?: string[];
   driver_experience?: number;
   driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string };
+  work_rule_id?: string;
 };
 
 export type CarUpdatePayload = {
@@ -1017,6 +1025,7 @@ export async function updateDriverProfile(
         ...(payload.driver_license.expiration_date != null && { expiry_date: payload.driver_license.expiration_date }),
       },
     }),
+    ...(payload.work_rule_id != null && payload.work_rule_id !== "" && { work_rule_id: payload.work_rule_id }),
   };
   const res = await fetchWithRetry(() =>
     fetch(DRIVER_PROFILES_UPDATE, {

@@ -721,18 +721,33 @@ export async function managerRoutes(app: FastifyInstance) {
 
   /**
    * GET /api/manager/fleet-lists/:type
-   * Справочники Fleet: countries, car-brands, car-models, colors. Для car-models — query brand=.
+   * Справочники Fleet: countries, car-brands, car-models, colors, work-rules. Для car-models — query brand=.
    */
   app.get<{ Params: { type: string }; Querystring: { brand?: string } }>("/fleet-lists/:type", async (req, reply) => {
     const managerId = (req as FastifyRequest & { managerId?: string }).managerId;
     if (!managerId) return reply.status(401).send({ error: "Manager not found" });
     const creds = await getManagerFleetCreds(managerId);
     if (!creds) return reply.status(400).send({ error: "Fleet not connected", message: "Подключите парк (API-ключ)." });
-    const type = req.params.type as FleetListType;
-    const allowed: FleetListType[] = ["countries", "car-brands", "car-models", "colors"];
-    if (!allowed.includes(type)) return reply.status(400).send({ error: "Invalid type", message: "type: countries | car-brands | car-models | colors" });
+    const type = req.params.type as FleetListType | "work-rules";
+    const fleetListTypes: FleetListType[] = ["countries", "car-brands", "car-models", "colors"];
+    if (type === "work-rules") {
+      try {
+        const rules = await getDriverWorkRules(creds);
+        return reply.send({ items: rules.map((r) => ({ id: r.id, name: r.name })) });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        req.log.warn({ step: "fleet_lists", type: "work-rules", error: msg.slice(0, 200) });
+        if (msg.includes("404") || msg.includes("path_not_found")) {
+          return reply.send({ items: [] });
+        }
+        return reply.status(502).send({ error: "Fleet list error", message: msg.slice(0, 300) });
+      }
+    }
+    if (!fleetListTypes.includes(type as FleetListType)) {
+      return reply.status(400).send({ error: "Invalid type", message: "type: countries | car-brands | car-models | colors | work-rules" });
+    }
     try {
-      const list = await getFleetList(creds, type, type === "car-models" ? { brand: req.query.brand } : undefined);
+      const list = await getFleetList(creds, type as FleetListType, type === "car-models" ? { brand: req.query.brand } : undefined);
       return reply.send({ items: list });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -867,6 +882,7 @@ export async function managerRoutes(app: FastifyInstance) {
           phones?: string[];
           driver_experience?: number;
           driver_license?: { series_number?: string; country?: string; issue_date?: string; expiration_date?: string };
+          work_rule_id?: string;
         };
         await updateDriverProfile(creds, driverId, {
           first_name: dp.first_name,
@@ -875,6 +891,7 @@ export async function managerRoutes(app: FastifyInstance) {
           phones: dp.phones,
           driver_experience: dp.driver_experience,
           driver_license: dp.driver_license,
+          work_rule_id: dp.work_rule_id,
         });
       }
       if (body.car && (body.car_id ?? (body.car as { car_id?: string }).car_id)) {
