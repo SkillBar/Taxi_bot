@@ -268,7 +268,6 @@ export function AgentHomeScreen({ onRegisterDriver, onRegisterCourier, onOpenMan
     if (!selectedDriver) {
       setFullDriver(null);
       setDriverCardProfile(null);
-      setDriverWorkRules([]);
       return;
     }
     const parsed = parseDriverName(selectedDriver.name);
