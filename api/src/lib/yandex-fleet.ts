@@ -348,7 +348,7 @@ export async function listParkDrivers(
     query: { park: { id: creds.parkId } },
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
-      account: ["balance", "currency", "work_rule_id"],
+      account: ["balance", "currency"],
       car: ["id"],
     },
     limit,
@@ -426,9 +426,8 @@ export async function listParkDrivers(
     const car_id = car?.id != null ? String(car.id) : null;
     const photoRaw = profile?.photo ?? raw.photo ?? (profile as { photo_url?: string })?.photo_url;
     const photo_url = photoRaw != null ? String(photoRaw) : null;
-    const acc = accountsList[0] as { work_rule_id?: string } | undefined;
-    const work_rule_id = acc?.work_rule_id != null ? String(acc.work_rule_id) : (raw.work_rule_id != null ? String(raw.work_rule_id) : null);
-    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id, photo_url: photo_url || null, work_rule_id: work_rule_id ?? null });
+    // work_rule_id в v1 list недоступен (AccountField не поддерживает), приходит только из v2 contractor profile
+    out.push({ yandexId: id, name, middle_name: middleName || null, phone, balance, workStatus, current_status, car_id, photo_url: photo_url || null, work_rule_id: null });
   }
 
   if (onParseDiagnostics) {
@@ -513,8 +512,8 @@ export async function getDriverProfileById(creds: FleetCredentials, driverId: st
   const carsArray = (raw.cars ?? (d as { cars?: unknown[] }).cars) as Record<string, unknown>[] | undefined;
   const carRaw = (raw.car ?? (d as { car?: Record<string, unknown> }).car ?? carsArray?.[0]) as Record<string, unknown> | undefined;
   const car_id = carRaw?.id != null ? String(carRaw.id) : null;
-  const acc = accountsList[0] as { work_rule_id?: string } | undefined;
-  const work_rule_id = acc?.work_rule_id != null ? String(acc.work_rule_id) : (raw.work_rule_id != null ? String(raw.work_rule_id) : null);
+  // work_rule_id в v1 driver-profiles недоступен (AccountField не поддерживает), берём из v2 в merge на бэкенде
+  const work_rule_id: string | null = null;
   const hasCarData =
     carRaw &&
     (carRaw.id != null ||
@@ -668,7 +667,7 @@ function driverProfileListBody(parkId: string, driverId: string) {
     query: { park: { id: parkId }, driver_profile: { id: [driverId] } },
     fields: {
       driver_profile: ["id", "work_status", "first_name", "last_name", "middle_name", "phones"],
-      account: ["balance", "currency", "work_rule_id"],
+      account: ["balance", "currency"],
       car: ["id", "brand", "model", "color", "year", "number", "registration_cert"],
       driver_license: ["country", "number", "issue_date", "expiry_date"],
       driver_license_experience: ["total_since_date"],
